@@ -201,14 +201,14 @@ postgres-dev/
 
 ### Special install
 - `pgtap` — likely PGDG `pgtap_17`; fall back to source from theory/pgtap if unavailable
-- `pg_anonymizer` — DALIBO RPM if available; else source build; init via `SELECT anon.init()`
+- ~~`pg_anonymizer`~~ — **EXCLUDED for now per user decision (apr 29)**
 
 ### CLI tools in image
 - `pgcli`, `pg_activity` (pip)
 - `pgbadger` (PGDG or EPEL or Perl)
 - `pspg` (PGDG extras / EPEL / source)
 - `sqitch` (PGDG / cpanm App::Sqitch)
-- `pgloader` (PGDG x86_64; emulation/source on arm64)
+- ~~`pgloader`~~ — **EXCLUDED for now per user decision (apr 29)**
 - `pgbench` (built into postgresql17 server package)
 
 ### OS utilities

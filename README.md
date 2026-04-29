@@ -4,7 +4,7 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S10 — permissions matrix wired up with DEFAULT PRIVILEGES. See
+**Status:** S7 — pg_stat_statements + auto_explain enabled. See
 [TASKS.md](TASKS.md) for slice progress.
 
 ---
@@ -83,6 +83,35 @@ PGPASSWORD=admin psql -h localhost -p 5499 -U admin -d postgres
 **Override passwords:** edit `.env` (gitignored) before first `up.sh`. After
 first boot the passwords are baked into the cluster — to change them, either
 `scripts/reset.sh` (wipes data) or `ALTER ROLE admin PASSWORD '...'` etc.
+
+## Extensions
+
+### pg_stat_statements (S7)
+Tracks aggregate query performance. Loaded via `shared_preload_libraries` and
+created in `template1` so every database inherits it.
+
+```sql
+SELECT calls, mean_exec_time::int AS mean_ms, substr(query,1,80)
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+```
+
+Reset accumulated stats: `SELECT pg_stat_statements_reset();` (admin only —
+`developer` has read access via `pg_read_all_stats`).
+
+### auto_explain (S7)
+Logs the EXPLAIN plan for any query that runs ≥ 1s. Output goes to the
+postgres log files (`volumes/logs/postgresql-*.json`) in JSON format —
+filterable with `jq`. No `CREATE EXTENSION` needed; preload-only.
+
+```bash
+# Find auto_explain entries from today's JSON log:
+jq -r 'select(.message | startswith("duration:")) | .message' \
+  volumes/logs/postgresql-$(date -u +%Y-%m-%d).json
+```
+
+Tunable in `config/postgresql.conf` (`auto_explain.log_min_duration`, etc.).
 
 ## Permissions matrix (S10)
 

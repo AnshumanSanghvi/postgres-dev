@@ -157,22 +157,18 @@ demonstrable increment.
 
 **Goal:** introduce `shared_preload_libraries` and per-query observability.
 
-- [ ] **7.1** Update Dockerfile to ensure contrib package present (already from S1)
-- [ ] **7.2** Update `config/postgresql.conf`:
-  - `shared_preload_libraries = 'pg_stat_statements,auto_explain'`
-  - `pg_stat_statements.track = 'all'`, `pg_stat_statements.max = 10000`
-  - `auto_explain.log_min_duration = 1000`, `log_analyze = on`, `log_buffers = on`, `log_format = 'json'`
-- [ ] **7.3** Write `initdb/00_extensions.sql`:
-  - `\c template1`
-  - `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`
-  - (auto_explain has no CREATE EXTENSION — preload only)
-- [ ] **7.4** Reset volumes, fresh boot, verify:
-  - `SHOW shared_preload_libraries;`
-  - `SELECT count(*) FROM pg_stat_statements;`
-  - Slow query (`SELECT pg_sleep(2)`) shows up in `auto_explain` JSON output
-- [ ] **7.5** Test: new database inherits pg_stat_statements (`CREATE DATABASE testdb; \c testdb; \dx`)
-- [ ] **7.6** Update README: pg_stat_statements + auto_explain example queries
-- [ ] **7.7** Commit: `feat(s7): pg_stat_statements + auto_explain`
+- [x] **7.1** Contrib package already present from S1
+- [x] **7.2** Update postgresql.conf: shared_preload_libraries, pg_stat_statements.track/max, auto_explain.log_min_duration/log_analyze/log_buffers/log_format/log_nested_statements
+- [x] **7.3** Write `initdb/00_extensions.sql` — pg_stat_statements in template1 and postgres (auto_explain is preload-only)
+- [x] **7.4** Reset, verify shared_preload_libraries shows both, pg_stat_statements is collecting (3 sleep calls + init script queries visible)
+- [x] **7.5** Verify new DB inherits pg_stat_statements (CREATE DATABASE testdb_s7; \dx)
+- [x] **7.6** Update README: pg_stat_statements + auto_explain examples and jq filter
+- [x] **7.7** Commit: `feat(s7): pg_stat_statements + auto_explain`
+
+### S7 Notes
+- auto_explain has NO `CREATE EXTENSION` — listing it in shared_preload_libraries is sufficient. Putting it in 00_extensions.sql would error.
+- `auto_explain.log_format = json` matches the jsonlog log file format so plans are first-class JSON entries
+- pg_stat_statements installs in `public` schema (default extension schema)
 
 ---
 
