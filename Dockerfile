@@ -55,6 +55,17 @@ RUN dnf -y install \
     && dnf clean all \
     && rm -rf /var/cache/dnf /var/cache/yum
 
+# --- Step 5: PostgreSQL extensions requiring shared_preload_libraries -------
+# These all hook into postgres startup, so they're loaded before the lighter
+# extensions in step 6. Versions pinned for reproducibility.
+RUN dnf -y install \
+      "pg_cron_${PG_MAJOR}-1.6.7-1PGDG.rhel9" \
+      "pgaudit_${PG_MAJOR}-17.1-1PGDG.rhel9" \
+      "pg_partman_${PG_MAJOR}-5.4.3-1PGDG.rhel9.7" \
+      "pldebugger_${PG_MAJOR}-1.8-1PGDG.rhel9" \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/yum
+
 # --- Step 4: OS terminal utilities (in-container debugging) -----------------
 RUN dnf -y install \
       procps-ng \

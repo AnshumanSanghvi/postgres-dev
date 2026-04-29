@@ -4,7 +4,7 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S7 — pg_stat_statements + auto_explain enabled. See
+**Status:** S11 — pg_cron, pgaudit, pg_partman, pldebugger added. See
 [TASKS.md](TASKS.md) for slice progress.
 
 ---
@@ -112,6 +112,54 @@ jq -r 'select(.message | startswith("duration:")) | .message' \
 ```
 
 Tunable in `config/postgresql.conf` (`auto_explain.log_min_duration`, etc.).
+
+### pg_cron (S11)
+Cron-style job scheduler inside postgres. Metadata lives in the `postgres`
+database (`cron.database_name`). Jobs can run in any database via
+`cron.schedule_in_database()`.
+
+`role_developer` has full DML on `cron.job` and EXECUTE on the cron schema, so
+developers can schedule jobs without superuser:
+
+```sql
+-- As developer, schedule a job in the postgres database:
+SELECT cron.schedule('cleanup-temp', '0 3 * * *', $$ DELETE FROM app.tmp WHERE created_at < now() - interval '7 days' $$);
+
+-- As developer, schedule a job in any database (cross-database):
+SELECT cron.schedule_in_database('refresh-mv', '*/10 * * * *', $$ REFRESH MATERIALIZED VIEW app.daily_summary $$, 'analytics_db');
+
+-- See your jobs:
+SELECT * FROM cron.job;
+SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
+```
+
+### pgaudit (S11)
+Logs every statement executed by every user, in addition to the normal postgres
+log line. Output goes to both stderr and the JSON log file with `AUDIT:` prefix.
+
+Filter to audit entries only:
+```bash
+jq -r 'select(.message | startswith("AUDIT:")) | .message' \
+  volumes/logs/postgresql-$(date -u +%Y-%m-%d).json
+```
+
+### pg_partman (S11)
+Time-based and serial-based partitioned table management. Background worker
+(`pg_partman_bgw`) runs maintenance every hour as the `admin` user (configured
+in `postgresql.conf`).
+
+```sql
+-- Create a partitioned parent table, then let pg_partman manage children:
+CREATE TABLE app.events (id bigserial, ts timestamptz NOT NULL, payload jsonb)
+  PARTITION BY RANGE (ts);
+SELECT partman.create_parent('app.events', 'ts', 'native', 'daily');
+```
+
+### pldebugger (S11)
+Server-side debugging API for PL/pgSQL functions. Loaded via
+`shared_preload_libraries = '...,plugin_debugger'` and exposed as the
+`pldbgapi` extension. Use a client like pgAdmin or DBeaver to step through
+function execution.
 
 ## Permissions matrix (S10)
 

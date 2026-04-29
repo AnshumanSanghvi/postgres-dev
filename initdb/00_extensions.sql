@@ -9,10 +9,19 @@
 
 \c template1
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+CREATE EXTENSION IF NOT EXISTS pgaudit;
+CREATE EXTENSION IF NOT EXISTS pg_partman;
+CREATE EXTENSION IF NOT EXISTS pldbgapi;        -- pldebugger
 
 \echo '[00_extensions] installing extensions in postgres database...'
 
 \c postgres
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+CREATE EXTENSION IF NOT EXISTS pgaudit;
+CREATE EXTENSION IF NOT EXISTS pg_partman;
+CREATE EXTENSION IF NOT EXISTS pldbgapi;
+-- pg_cron MUST be installed in cron.database_name (= 'postgres'). Schemas in
+-- other databases can use cron.schedule_in_database() to dispatch jobs there.
+CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 \echo '[00_extensions] done'

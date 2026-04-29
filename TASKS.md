@@ -238,31 +238,20 @@ demonstrable increment.
 
 **Goal:** add the four extensions that need shared_preload_libraries entries.
 
-- [ ] **11.1** Verify exact PGDG package names + versions for OL9/PG17:
-  - `pg_cron_17`, `pgaudit17_17`, `pg_partman17`, `pldebugger17`
-- [ ] **11.2** Add packages to Dockerfile with version pins
-- [ ] **11.3** Run `scripts/lint-dockerfile.sh`
-- [ ] **11.4** Update `config/postgresql.conf`:
-  - `shared_preload_libraries = 'pg_stat_statements,auto_explain,pg_cron,pgaudit,pg_partman_bgw,plugin_debugger'`
-  - `cron.database_name = 'postgres'`, `cron.use_background_workers = on`
-  - `pgaudit.log = 'all'`, `pgaudit.log_catalog = on`, `pgaudit.log_relation = on`, `pgaudit.log_statement_once = off`
-  - `pg_partman_bgw.dbname = 'postgres'`, `pg_partman_bgw.interval = 3600`, `pg_partman_bgw.role = 'admin'`
-- [ ] **11.5** Add to `initdb/00_extensions.sql` (in template1):
-  - `CREATE EXTENSION pg_cron;`
-  - `CREATE EXTENSION pgaudit;`
-  - `CREATE EXTENSION pg_partman;`
-  - `CREATE EXTENSION pldbgapi;`  (pldebugger)
-- [ ] **11.6** Write `initdb/06_pg_cron.sql`:
-  - GRANT USAGE ON SCHEMA cron TO role_developer
-  - GRANT pg_cron_admin role to role_developer (or appropriate cron grants)
-  - Document who can call `cron.schedule_in_database()`
-- [ ] **11.7** Reset and verify each loaded:
-  - `SHOW shared_preload_libraries;` — all 6
-  - `\dx` — pg_cron, pgaudit, pg_partman, pldbgapi all present
-  - Schedule a test cron job via `cron.schedule_in_database()`, observe it run
-  - Run a query as `app` and confirm pgaudit logs it
-- [ ] **11.8** Update README: usage example for each (cron job, pgaudit log inspection, partman parent table, pldebugger session)
-- [ ] **11.9** Commit: `feat(s11): pg_cron, pgaudit, pg_partman, pldebugger`
+- [x] **11.1** Verified PGDG arm64 package names: pg_cron_17 (1.6.7), pgaudit_17 (17.1), pg_partman_17 (5.4.3), pldebugger_17 (1.8) — all available
+- [x] **11.2** Added with version pins to Dockerfile (Step 5)
+- [x] **11.3** hadolint passes
+- [x] **11.4** postgresql.conf: shared_preload_libraries with all 6, cron.*, pgaudit.*, pg_partman_bgw.* settings
+- [x] **11.5** 00_extensions.sql: CREATE EXTENSION pg_cron, pgaudit, pg_partman, pldbgapi (note: pldebugger extension is named `pldbgapi`)
+- [x] **11.6** 06_pg_cron.sql: USAGE on cron schema, full DML on cron.job + cron.job_run_details, EXECUTE on functions, DEFAULT PRIVILEGES, all granted to role_developer
+- [x] **11.7** Reset and verify: shared_preload_libraries shows all 6, \dx shows 4 new extensions, developer scheduled pg_cron job successfully, pgaudit emitting AUDIT entries to JSON log
+- [x] **11.8** README: usage examples for pg_cron (incl. cross-database), pgaudit (jq filter), pg_partman (parent table + bgw), pldebugger
+- [x] **11.9** Commit: `feat(s11): pg_cron, pgaudit, pg_partman, pldebugger`
+
+### S11 Notes
+- pldebugger's CREATE EXTENSION name is `pldbgapi` (not `pldebugger`)
+- pgaudit version 17.1 matches PG17 — the `pgaudit_17` package is the correct one for PG17 (older `pgaudit17_17` naming was for PG17 paired with older pgaudit major; this scheme changed)
+- pg_partman_bgw with role=admin emits warnings on very first boot until admin user is created by 03_roles.sh; harmless and self-correcting on next postgres restart
 
 ---
 
