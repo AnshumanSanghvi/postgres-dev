@@ -199,35 +199,21 @@ demonstrable increment.
 
 **Goal:** create admin/developer/app users with env-var-injected passwords.
 
-- [ ] **9.1** Write `initdb/03_roles.sh` (shebang, set -e):
-  ```bash
-  psql -v ON_ERROR_STOP=1 \
-    -v admin_pw="${POSTGRES_ADMIN_PASSWORD}" \
-    -v dev_pw="${POSTGRES_DEVELOPER_PASSWORD}" \
-    -v app_pw="${POSTGRES_APP_PASSWORD}" \
-    -U "$POSTGRES_USER" -d postgres <<-'EOSQL'
-      -- group roles
-      CREATE ROLE role_developer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT;
-      CREATE ROLE role_app       NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT;
-      -- login users
-      CREATE ROLE admin     LOGIN SUPERUSER CREATEDB CREATEROLE REPLICATION BYPASSRLS PASSWORD :'admin_pw';
-      CREATE ROLE developer LOGIN PASSWORD :'dev_pw' IN ROLE role_developer;
-      CREATE ROLE app       LOGIN CONNECTION LIMIT 50 PASSWORD :'app_pw' IN ROLE role_app;
-      -- built-in monitoring grants
-      GRANT pg_monitor, pg_read_all_stats TO developer;
-  EOSQL
-  ```
-- [ ] **9.2** Make script executable in Dockerfile (`chmod +x` during COPY)
-- [ ] **9.3** Make sure `.env` is loaded by compose (already done in S3)
-- [ ] **9.4** Reset, verify each user can connect:
-  - `psql -h localhost -p 5499 -U admin -W` (password from .env)
-  - same for developer and app
-- [ ] **9.5** Test: wrong password rejected for all
-- [ ] **9.6** Test: `SELECT current_user, session_user;` returns expected role
-- [ ] **9.7** Add `scripts/psql-admin.sh`, `psql-developer.sh`, `psql-app.sh` (read .env, connect)
-- [ ] **9.8** Update README: **document users + default passwords**, role attributes table, how to override via .env
-- [ ] **9.9** Update healthcheck in compose.yml to use `admin` user now that it exists
-- [ ] **9.10** Commit: `feat(s9): admin/developer/app users with env-var passwords`
+- [x] **9.1** Write `initdb/03_roles.sh` using `psql -v admin_pw=...` for password injection
+- [x] **9.2** Made executable in repo (chmod +x); init runner picks it up via `.sh` case
+- [x] **9.3** `.env` loaded by compose (S3 already)
+- [x] **9.4** Reset, verify each user connects
+- [x] **9.5** Test: wrong password rejected
+- [x] **9.6** Test: SUPERUSER/non-SUPERUSER attribute correct per user
+- [x] **9.7** Add `scripts/psql-admin.sh`, `psql-developer.sh`, `psql-app.sh` (read .env)
+- [x] **9.8** Update README: users + default passwords table, override via .env
+- [x] **9.9** Update healthcheck to real-query as admin (with $$ to escape compose env interpolation)
+- [x] **9.10** Commit: `feat(s9): admin/developer/app users with env-var passwords`
+
+### S9 Notes
+- `admin` re-owns the `app` schema after creation (was bootstrap-postgres-owned from 02_schemas.sql)
+- `pg_monitor` + `pg_read_all_stats` granted directly to `developer` (verified: can read pg_stat_activity for all sessions)
+- Helper scripts source `.env` so callers don't need to remember passwords; pass through extra args to psql
 
 ---
 

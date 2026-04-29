@@ -4,7 +4,7 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S8 — schemas, locked-down public, cluster-wide search_path. See
+**Status:** S9 — admin/developer/app users with env-injected passwords. See
 [TASKS.md](TASKS.md) for slice progress.
 
 ---
@@ -53,6 +53,36 @@ them after edits:
 scripts/reset.sh              # confirms before deleting
 scripts/up.sh                 # rebuilds and reinitializes
 ```
+
+## Users & roles (S9)
+
+Three login users, each backed by a group role for cleaner privilege
+management. **Default passwords below are dev-only — override via `.env`.**
+
+| User        | Password    | Role attributes                                                            | Use                              |
+|-------------|-------------|----------------------------------------------------------------------------|----------------------------------|
+| `admin`     | `admin`     | SUPERUSER, CREATEDB, CREATEROLE, REPLICATION, BYPASSRLS                    | DBA tasks, migrations, owns objs |
+| `developer` | `developer` | NOSUPERUSER, RLS enforced, member of `pg_monitor` + `pg_read_all_stats`    | day-to-day dev queries           |
+| `app`       | `app`       | NOSUPERUSER, RLS enforced, conn limit 50                                   | application connections          |
+
+Group roles `role_developer` and `role_app` are NOLOGIN containers for the
+permissions wired up in S10.
+
+Connect via helper scripts (read passwords from `.env` automatically):
+```bash
+scripts/psql-admin.sh
+scripts/psql-developer.sh
+scripts/psql-app.sh
+```
+
+Or directly:
+```bash
+PGPASSWORD=admin psql -h localhost -p 5499 -U admin -d postgres
+```
+
+**Override passwords:** edit `.env` (gitignored) before first `up.sh`. After
+first boot the passwords are baked into the cluster — to change them, either
+`scripts/reset.sh` (wipes data) or `ALTER ROLE admin PASSWORD '...'` etc.
 
 ## Schemas (S8)
 | Schema   | Purpose                                                      |
@@ -124,6 +154,10 @@ naturally.
 | `scripts/down.sh`          | stop the container (preserves data)           |
 | `scripts/reset.sh`         | wipe data and logs, force reinit on next up   |
 | `scripts/lint-dockerfile.sh` | run hadolint against Dockerfile             |
+| `scripts/logs.sh [N]`      | tail JSON logs (jq-formatted)                 |
+| `scripts/psql-admin.sh`    | open psql as `admin`                          |
+| `scripts/psql-developer.sh`| open psql as `developer`                      |
+| `scripts/psql-app.sh`      | open psql as `app`                            |
 
 ## In-container utilities (added in S4)
 For ad-hoc debugging inside the container:
