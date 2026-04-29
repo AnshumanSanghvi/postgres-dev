@@ -66,6 +66,18 @@ RUN dnf -y install \
     && dnf clean all \
     && rm -rf /var/cache/dnf /var/cache/yum
 
+# --- Step 6: Lighter extensions (no shared_preload_libraries impact) --------
+# pg_buffercache, pg_prewarm, tablefunc are already in postgresql17-contrib (S1).
+RUN dnf -y install \
+      "postgresql${PG_MAJOR}-plpython3-17.9-1PGDG.rhel9.7" \
+      "pg_squeeze_${PG_MAJOR}-1.9.1-1PGDG.rhel9" \
+      "hypopg_${PG_MAJOR}-1.4.1-2PGDG.rhel9" \
+      "pg_hint_plan_${PG_MAJOR}-1.7.1-1PGDG.rhel9" \
+      "wal2json_${PG_MAJOR}-2.6-2PGDG.rhel9" \
+      "pgtap_${PG_MAJOR}-1.3.4-1PGDG.rhel9" \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/yum
+
 # --- Step 4: OS terminal utilities (in-container debugging) -----------------
 RUN dnf -y install \
       procps-ng \

@@ -259,22 +259,19 @@ demonstrable increment.
 
 **Goal:** add pg_buffercache, pg_prewarm, pg_squeeze, hypopg, pg_hint_plan, wal2json, plpython3u, pgtap, tablefunc.
 
-- [ ] **12.1** Verify PGDG package names + versions: `pg_squeeze17`, `hypopg_17`, `pg_hint_plan_17`, `wal2json17`, `pgtap_17` (or source)
-- [ ] **12.2** Install in Dockerfile with version pins; lint passes
-- [ ] **12.3** Add to `initdb/00_extensions.sql` (in template1):
-  - pg_buffercache, pg_prewarm, pg_squeeze, hypopg, pg_hint_plan, wal2json, plpython3u, pgtap, tablefunc
-- [ ] **12.4** Reset, verify `\dx` shows all
-- [ ] **12.5** Smoke-test each:
-  - `SELECT * FROM pg_buffercache LIMIT 1;`
-  - `SELECT pg_prewarm('app.t1');`
-  - `SELECT hypopg_create_index('CREATE INDEX ON app.t1(id)');`
-  - `EXPLAIN (FORMAT JSON) SELECT 1;` with hint
-  - wal2json: confirm decodable replication slot
-  - `DO $$ BEGIN PERFORM 1; END $$ LANGUAGE plpython3u;`
-  - pgtap: `SELECT pass('basic');`
-  - `SELECT * FROM crosstab('SELECT 1,1,1');` (tablefunc)
-- [ ] **12.6** Update README: usage example for each
-- [ ] **12.7** Commit: `feat(s12): pg_buffercache, pg_prewarm, pg_squeeze, hypopg, pg_hint_plan, wal2json, plpython3u, pgtap, tablefunc`
+- [x] **12.1** Verified arm64 packages: pg_squeeze_17 (1.9.1), hypopg_17 (1.4.1), pg_hint_plan_17 (1.7.1), wal2json_17 (2.6), pgtap_17 (1.3.4 noarch), postgresql17-plpython3 (17.9)
+- [x] **12.2** Installed via new Dockerfile Step 6, version-pinned, lint clean
+- [x] **12.3** 00_extensions.sql: CREATE EXTENSION for 12 extensions in template1 + postgres (pg_cron only in postgres)
+- [x] **12.4** Reset, `\dx` shows all 14 extensions (incl. plpgsql)
+- [x] **12.5** Smoke-tested each: buffercache count, prewarm, hypopg flips Seq → Bitmap Index Scan, pg_hint_plan SeqScan hint, plpython3u notice, crosstab pivot, pgtap plan/pass/ok/finish, pg_squeeze loaded, wal2json slot creates and drops cleanly
+- [x] **12.6** Updated README with usage example for each
+- [x] **12.7** Commit: `feat(s12): pg_buffercache, pg_prewarm, pg_squeeze, hypopg, pg_hint_plan, wal2json, plpython3u, pgtap, tablefunc`
+
+### S12 Notes
+- **pg_squeeze requires `shared_preload_libraries`** — added to the list (now 7 entries)
+- **wal2json is an output plugin, not a regular extension** — no `CREATE EXTENSION`. Used via `pg_create_logical_replication_slot('slot','wal2json')`
+- **pg_hint_plan loaded via `session_preload_libraries`** — auto-loads on every connection so hints work without manual `LOAD`
+- All 14 extensions inherit into newly-created databases via template1
 
 ---
 

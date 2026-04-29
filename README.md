@@ -4,7 +4,7 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S11 — pg_cron, pgaudit, pg_partman, pldebugger added. See
+**Status:** S12 — all extensions installed (14 total). See
 [TASKS.md](TASKS.md) for slice progress.
 
 ---
@@ -160,6 +160,71 @@ Server-side debugging API for PL/pgSQL functions. Loaded via
 `shared_preload_libraries = '...,plugin_debugger'` and exposed as the
 `pldbgapi` extension. Use a client like pgAdmin or DBeaver to step through
 function execution.
+
+### pg_buffercache + pg_prewarm (S12)
+Inspect and prewarm the shared buffer cache.
+```sql
+SELECT count(*) AS buffers FROM pg_buffercache;            -- inspect
+SELECT pg_prewarm('app.large_table');                      -- preload into cache
+```
+
+### pg_squeeze (S12)
+Online table compaction (removes bloat without exclusive locks).
+```sql
+SELECT squeeze.squeeze_table('app', 'big_table', NULL, NULL, NULL);
+```
+
+### hypopg (S12)
+Test indexes hypothetically — no real index is built, but the planner pretends
+it exists for `EXPLAIN`. Iteration speed for index design.
+```sql
+SELECT hypopg_create_index('CREATE INDEX ON app.orders(customer_id)');
+EXPLAIN SELECT * FROM app.orders WHERE customer_id = 42;   -- planner uses hypothetical
+SELECT hypopg_reset();                                     -- discard all hypotheticals
+```
+
+### pg_hint_plan (S12)
+Force specific query plans via SQL comment hints. Auto-loaded per session via
+`session_preload_libraries`.
+```sql
+/*+ SeqScan(t) */ SELECT * FROM app.t WHERE id = 42;
+/*+ IndexScan(t orders_customer_idx) */ SELECT * FROM app.orders t;
+```
+
+### wal2json (S12)
+WAL-to-JSON output plugin for logical replication / change data capture. Not a
+`CREATE EXTENSION` — used at slot creation time:
+```sql
+SELECT pg_create_logical_replication_slot('cdc_slot', 'wal2json');
+SELECT * FROM pg_logical_slot_peek_changes('cdc_slot', NULL, NULL);
+SELECT pg_drop_replication_slot('cdc_slot');
+```
+
+### plpython3u (S12)
+Untrusted Python procedural language. Superuser-only to create functions.
+```sql
+DO $$ plpy.notice('hello from python ' || sys.version) $$ LANGUAGE plpython3u;
+```
+
+### tablefunc (S12)
+Pivot tables and `connectby()` recursive queries.
+```sql
+SELECT * FROM crosstab($$
+  VALUES ('row1','a',1),('row1','b',2),('row2','a',3),('row2','b',4)
+$$) AS ct(rowname text, a int, b int);
+```
+
+### pgtap (S12)
+Unit testing framework for SQL.
+```sql
+BEGIN;
+SELECT plan(3);
+SELECT has_table('app','orders','orders table exists');
+SELECT col_not_null('app','orders','id','id is NOT NULL');
+SELECT pass('arbitrary assertion');
+SELECT * FROM finish();
+ROLLBACK;
+```
 
 ## Permissions matrix (S10)
 
