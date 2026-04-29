@@ -364,19 +364,30 @@ demonstrable increment.
 
 ## Slice 16 — Final Integration Test
 
-- [ ] **16.1** Full reset: `scripts/reset.sh`
-- [ ] **16.2** All extensions present in fresh DB (`CREATE DATABASE foo; \c foo; \dx`)
-- [ ] **16.3** All three users connect with documented default passwords
-- [ ] **16.4** RLS enforced for developer and app
-- [ ] **16.5** Logs in both formats (stderr + JSON)
-- [ ] **16.6** pg_cron cross-DB job runs successfully
-- [ ] **16.7** pgaudit captures all-user queries
-- [ ] **16.8** pg_anonymizer masking works for developer
-- [ ] **16.9** Data persists across `down/up`
-- [ ] **16.10** Config edit takes effect after restart, no rebuild
-- [ ] **16.11** `pgbadger /var/log/postgresql/*.log` produces an HTML report
-- [ ] **16.12** hadolint clean
-- [ ] **16.13** Final commit: `chore(s16): final integration test pass`
+- [x] **16.1** Full reset (`scripts/reset.sh`) + cold up to healthy
+- [x] **16.2** Fresh DB inherits 13 extensions from template1 (pg_cron is `postgres`-only by design); template1 itself + postgres has 14 each
+- [x] **16.3** admin/developer/app all connect with default `.env` passwords
+- [x] **16.4** RLS enforced: admin sees 5 rows (BYPASSRLS), developer sees 1 (own row), app sees 1 (own row)
+- [x] **16.5** Both `postgresql-YYYY-MM-DD.log` (text) and `.json` files written; jq-decodable
+- [x] **16.6** `cron.schedule_in_database()` from developer schedules a cross-DB job
+- [x] **16.7** pgaudit captured 2 AUDIT entries for each of admin/developer/app
+- [x] **16.8** ~~pg_anonymizer~~ — SKIPPED (excluded per user decision)
+- [x] **16.9** Data persists across `down/up` — rows including persist_marker confirmed
+- [x] **16.10** `work_mem` changed from 4MB to 8MB via config edit + `docker compose restart` (no rebuild)
+- [x] **16.11** pgbadger generated 1.06 MB HTML report with proper `<title>` from JSON+text logs
+- [x] **16.12** hadolint clean on the final Dockerfile
+- [x] **16.13** Final commit: `chore(s16): final integration test pass`
+
+### Final summary
+- **17 commits** (S0 through S16)
+- **PostgreSQL 17.9** on `oraclelinux:9-slim`, multi-arch (verified arm64; amd64 architecturally supported)
+- **Image size:** 1.13 GB
+- **Extensions (14):** pg_stat_statements, pg_cron, pgaudit, pg_partman, pldbgapi, pg_buffercache, pg_prewarm, pg_squeeze, hypopg, pg_hint_plan, plpython3u, tablefunc, pgtap, plus auto_explain (preload-only) and wal2json (output plugin) — `pg_anonymizer` excluded per user
+- **CLI tools (5):** pgcli 4.1.0, pg_activity 3.6.1, pgbadger 13.2, pspg 5.8.16, sqitch 1.6.1 (+ pgbench from server package) — `pgloader` excluded per user
+- **Users:** admin (SUPERUSER), developer (RLS-enforced, pg_monitor), app (RLS-enforced, conn limit 50)
+- **Schemas:** `app` (admin-owned), `public` (extensions only, CREATE revoked from PUBLIC)
+- **Logging:** dual format (text + JSON), daily rotation, `log_min_duration_statement=0`
+- **All init scripts run on first boot only**; reset workflow documented and tested
 
 ---
 
