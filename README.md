@@ -1,63 +1,61 @@
 # Postgres Dev Environment
 
-A reusable, dockerized PostgreSQL 17 development environment built on OracleLinux 9
-Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
-extensions, dev-tuned configuration, and CLI tooling baked in.
+A reusable, dockerized PostgreSQL 17 development environment built on
+OracleLinux 9 Slim. Designed to mirror production RHEL9/OL9 environments,
+with a curated set of extensions, dev-tuned configuration, and CLI tooling
+baked in.
 
-**Status:** S14 — CLI tooling (pgcli, pg_activity, pgbadger, pspg, sqitch) added.
-See [TASKS.md](TASKS.md) for slice progress.
+**Status:** S15 — `.psqlrc` and final UX polish complete.
+
+---
+
+## Table of contents
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
+- [Default users & passwords](#users--roles)
+- [Connecting](#connecting)
+- [Volume layout](#volume-layout)
+- [Resetting the environment](#resetting-the-environment)
+- [Editing config without rebuilding](#editing-config-without-rebuilding)
+- [Architecture support](#architecture-support)
+- [Consuming this in another project](#consuming-this-in-another-project)
+- [Permissions matrix](#permissions-matrix-s10)
+- [`.psqlrc` (interactive psql defaults)](#psqlrc-s15)
+- [Schemas](#schemas-s8)
+- [Tuned settings](#tuned-settings-after-s5)
+- [Logs](#logs-s6)
+- [Extensions](#extensions)
+- [CLI tools](#cli-tools-s14)
+- [Helper scripts](#helper-scripts)
+- [In-container utilities](#in-container-utilities-added-in-s4)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Prerequisites
 - Docker Desktop (Mac/Windows) or Docker Engine 24+ (Linux)
 - Docker Compose v2 (`docker compose` subcommand)
-- ~1 GB disk for image + data
+- ~1.5 GB disk for image + data
 
 ## Quick start
 ```bash
 git clone <this repo> postgres-dev && cd postgres-dev
 cp .env.example .env          # adjust passwords if you want
 scripts/up.sh                 # builds image, starts container, waits for healthy
-PGPASSWORD=postgres psql -h localhost -p 5499 -U postgres
+scripts/psql-admin.sh         # opens psql as admin (.psqlrc auto-applied)
 ```
 
 When done:
 ```bash
-scripts/down.sh               # stops container; data and logs preserved
-scripts/reset.sh              # full reset: stop + wipe volumes + reinit
+scripts/down.sh               # stop the container; data and logs preserved
+scripts/reset.sh              # full reset: stop + wipe volumes + reinit on next up
 ```
 
-## What works today (after S3)
-- PostgreSQL 17 server + contrib on `oraclelinux:9-slim`, multi-arch (amd64 + arm64)
-- Locale `C.UTF-8`, encoding `UTF8`, timezone `UTC`
-- `scram-sha-256` authentication, port `5499`, SSL disabled
-- docker compose orchestration with bind-mounted `data/`, `logs/`, `config/`
-- 512 MiB memory limit enforced
-- Healthcheck via `pg_isready` (will switch to real-query check once admin user exists in S9)
-- Helper scripts: `up.sh`, `down.sh`, `reset.sh`
-- Data persists across `down/up`; container survives Docker restart
+---
 
-## Volume layout
-| Host path           | Container path                | Purpose                          |
-|---------------------|-------------------------------|----------------------------------|
-| `./volumes/data/`   | `/var/lib/pgsql/data`         | PGDATA (cluster files)           |
-| `./volumes/logs/`   | `/var/log/postgresql`         | postgres log files (S6+)         |
-| `./config/`         | `/etc/postgresql` (read-only) | postgresql.conf, pg_hba.conf     |
-| `./initdb/`         | `/docker-entrypoint-initdb.d` (read-only) | first-boot init scripts (S5+) |
+## Users & roles
 
-## Resetting the environment
-Init scripts in `initdb/` only run on first boot (when PGDATA is empty). To re-run
-them after edits:
-```bash
-scripts/reset.sh              # confirms before deleting
-scripts/up.sh                 # rebuilds and reinitializes
-```
-
-## Users & roles (S9)
-
-Three login users, each backed by a group role for cleaner privilege
-management. **Default passwords below are dev-only — override via `.env`.**
+**Default passwords below are dev-only — override via `.env` before first boot.**
 
 | User        | Password    | Role attributes                                                            | Use                              |
 |-------------|-------------|----------------------------------------------------------------------------|----------------------------------|
@@ -66,165 +64,125 @@ management. **Default passwords below are dev-only — override via `.env`.**
 | `app`       | `app`       | NOSUPERUSER, RLS enforced, conn limit 50                                   | application connections          |
 
 Group roles `role_developer` and `role_app` are NOLOGIN containers for the
-permissions wired up in S10.
+permissions wired in `initdb/04_permissions.sql`.
 
-Connect via helper scripts (read passwords from `.env` automatically):
+To change passwords:
+1. **Before first boot**: edit `.env`, then `scripts/up.sh`.
+2. **After first boot**: `ALTER ROLE admin PASSWORD '...'` (or `scripts/reset.sh` to wipe).
+
+---
+
+## Connecting
+
+Helper scripts read passwords from `.env` automatically:
 ```bash
 scripts/psql-admin.sh
 scripts/psql-developer.sh
 scripts/psql-app.sh
 ```
 
-Or directly:
+Or directly from the host:
 ```bash
 PGPASSWORD=admin psql -h localhost -p 5499 -U admin -d postgres
 ```
 
-**Override passwords:** edit `.env` (gitignored) before first `up.sh`. After
-first boot the passwords are baked into the cluster — to change them, either
-`scripts/reset.sh` (wipes data) or `ALTER ROLE admin PASSWORD '...'` etc.
-
-## Extensions
-
-### pg_stat_statements (S7)
-Tracks aggregate query performance. Loaded via `shared_preload_libraries` and
-created in `template1` so every database inherits it.
-
-```sql
-SELECT calls, mean_exec_time::int AS mean_ms, substr(query,1,80)
-FROM pg_stat_statements
-ORDER BY mean_exec_time DESC
-LIMIT 10;
-```
-
-Reset accumulated stats: `SELECT pg_stat_statements_reset();` (admin only —
-`developer` has read access via `pg_read_all_stats`).
-
-### auto_explain (S7)
-Logs the EXPLAIN plan for any query that runs ≥ 1s. Output goes to the
-postgres log files (`volumes/logs/postgresql-*.json`) in JSON format —
-filterable with `jq`. No `CREATE EXTENSION` needed; preload-only.
-
+Or from inside the container (gets full `.psqlrc` UX — pspg pager, NULL as ∅,
+prompt with timing, macro shortcuts):
 ```bash
-# Find auto_explain entries from today's JSON log:
-jq -r 'select(.message | startswith("duration:")) | .message' \
-  volumes/logs/postgresql-$(date -u +%Y-%m-%d).json
+docker exec -it -e PGPASSWORD=admin postgres-dev psql -U admin -p 5499 -d postgres
 ```
 
-Tunable in `config/postgresql.conf` (`auto_explain.log_min_duration`, etc.).
+---
 
-### pg_cron (S11)
-Cron-style job scheduler inside postgres. Metadata lives in the `postgres`
-database (`cron.database_name`). Jobs can run in any database via
-`cron.schedule_in_database()`.
+## Volume layout
+| Host path           | Container path                            | Purpose                          |
+|---------------------|-------------------------------------------|----------------------------------|
+| `./volumes/data/`   | `/var/lib/pgsql/data`                     | PGDATA (cluster files)           |
+| `./volumes/logs/`   | `/var/log/postgresql`                     | text + JSON log files            |
+| `./config/`         | `/etc/postgresql` (read-only)             | `postgresql.conf`, `pg_hba.conf` |
+| `./initdb/`         | `/docker-entrypoint-initdb.d` (read-only) | first-boot init scripts          |
 
-`role_developer` has full DML on `cron.job` and EXECUTE on the cron schema, so
-developers can schedule jobs without superuser:
+PGDATA is a *subdirectory* of the bind mount (`pgdata/`) so `.gitkeep` and
+similar files at the mount root don't trip `initdb`'s "directory not empty"
+check.
 
-```sql
--- As developer, schedule a job in the postgres database:
-SELECT cron.schedule('cleanup-temp', '0 3 * * *', $$ DELETE FROM app.tmp WHERE created_at < now() - interval '7 days' $$);
+---
 
--- As developer, schedule a job in any database (cross-database):
-SELECT cron.schedule_in_database('refresh-mv', '*/10 * * * *', $$ REFRESH MATERIALIZED VIEW app.daily_summary $$, 'analytics_db');
+## Resetting the environment
 
--- See your jobs:
-SELECT * FROM cron.job;
-SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
-```
-
-### pgaudit (S11)
-Logs every statement executed by every user, in addition to the normal postgres
-log line. Output goes to both stderr and the JSON log file with `AUDIT:` prefix.
-
-Filter to audit entries only:
+Init scripts in `initdb/` only run on first boot (when PGDATA is empty). To
+re-run them after edits:
 ```bash
-jq -r 'select(.message | startswith("AUDIT:")) | .message' \
-  volumes/logs/postgresql-$(date -u +%Y-%m-%d).json
+scripts/reset.sh              # confirms before wiping
+scripts/up.sh
 ```
 
-### pg_partman (S11)
-Time-based and serial-based partitioned table management. Background worker
-(`pg_partman_bgw`) runs maintenance every hour as the `admin` user (configured
-in `postgresql.conf`).
+`reset.sh` deletes data via a one-shot helper container (the host can't
+`rm -rf` files owned by the container's postgres UID).
 
-```sql
--- Create a partitioned parent table, then let pg_partman manage children:
-CREATE TABLE app.events (id bigserial, ts timestamptz NOT NULL, payload jsonb)
-  PARTITION BY RANGE (ts);
-SELECT partman.create_parent('app.events', 'ts', 'native', 'daily');
+---
+
+## Editing config without rebuilding
+`./config/` is mounted read-only. After editing `postgresql.conf` or
+`pg_hba.conf`:
+```bash
+docker compose restart postgres
+```
+No image rebuild needed. Init scripts in `./initdb/` likewise update without
+rebuilding, but only re-run after a `reset.sh`.
+
+---
+
+## Architecture support
+The image is multi-arch — Docker pulls the matching manifest per host
+architecture automatically (no `platform:` pin in `compose.yml`). Verified on
+`linux/arm64` (Apple Silicon) and `linux/amd64`.
+
+Bind mounts on Docker Desktop for Mac (virtiofs) restrict `chown` across the
+host/container boundary. The entrypoint detects the host UID/GID from the
+bind-mounted PGDATA directory and aligns the in-container `postgres` user to
+match — no chown required on Mac, and a no-op on Linux.
+
+---
+
+## Consuming this in another project
+
+Two patterns:
+
+### A. Sibling checkout + compose override
+Clone this repo as a sibling of your project; in your project, write a
+`docker-compose.override.yml` that extends the postgres-dev service:
+
+```yaml
+# my-project/docker-compose.override.yml
+services:
+  postgres:
+    extends:
+      file: ../postgres-dev/compose.yml
+      service: postgres
+    # Project-specific overrides:
+    environment:
+      POSTGRES_DB: my_project_db
+    volumes:
+      - ./db/initdb:/docker-entrypoint-initdb.d/project:ro  # extra init scripts
 ```
 
-### pldebugger (S11)
-Server-side debugging API for PL/pgSQL functions. Loaded via
-`shared_preload_libraries = '...,plugin_debugger'` and exposed as the
-`pldbgapi` extension. Use a client like pgAdmin or DBeaver to step through
-function execution.
-
-### pg_buffercache + pg_prewarm (S12)
-Inspect and prewarm the shared buffer cache.
-```sql
-SELECT count(*) AS buffers FROM pg_buffercache;            -- inspect
-SELECT pg_prewarm('app.large_table');                      -- preload into cache
+### B. Direct compose include (Compose v2.20+)
+```yaml
+# my-project/compose.yml
+include:
+  - ../postgres-dev/compose.yml
+services:
+  app:
+    depends_on:
+      postgres:
+        condition: service_healthy
 ```
 
-### pg_squeeze (S12)
-Online table compaction (removes bloat without exclusive locks).
-```sql
-SELECT squeeze.squeeze_table('app', 'big_table', NULL, NULL, NULL);
-```
+Either way: edit `.env` in `postgres-dev/` to set passwords, then `up.sh`
+from there (or via your own orchestration).
 
-### hypopg (S12)
-Test indexes hypothetically — no real index is built, but the planner pretends
-it exists for `EXPLAIN`. Iteration speed for index design.
-```sql
-SELECT hypopg_create_index('CREATE INDEX ON app.orders(customer_id)');
-EXPLAIN SELECT * FROM app.orders WHERE customer_id = 42;   -- planner uses hypothetical
-SELECT hypopg_reset();                                     -- discard all hypotheticals
-```
-
-### pg_hint_plan (S12)
-Force specific query plans via SQL comment hints. Auto-loaded per session via
-`session_preload_libraries`.
-```sql
-/*+ SeqScan(t) */ SELECT * FROM app.t WHERE id = 42;
-/*+ IndexScan(t orders_customer_idx) */ SELECT * FROM app.orders t;
-```
-
-### wal2json (S12)
-WAL-to-JSON output plugin for logical replication / change data capture. Not a
-`CREATE EXTENSION` — used at slot creation time:
-```sql
-SELECT pg_create_logical_replication_slot('cdc_slot', 'wal2json');
-SELECT * FROM pg_logical_slot_peek_changes('cdc_slot', NULL, NULL);
-SELECT pg_drop_replication_slot('cdc_slot');
-```
-
-### plpython3u (S12)
-Untrusted Python procedural language. Superuser-only to create functions.
-```sql
-DO $$ plpy.notice('hello from python ' || sys.version) $$ LANGUAGE plpython3u;
-```
-
-### tablefunc (S12)
-Pivot tables and `connectby()` recursive queries.
-```sql
-SELECT * FROM crosstab($$
-  VALUES ('row1','a',1),('row1','b',2),('row2','a',3),('row2','b',4)
-$$) AS ct(rowname text, a int, b int);
-```
-
-### pgtap (S12)
-Unit testing framework for SQL.
-```sql
-BEGIN;
-SELECT plan(3);
-SELECT has_table('app','orders','orders table exists');
-SELECT col_not_null('app','orders','id','id is NOT NULL');
-SELECT pass('arbitrary assertion');
-SELECT * FROM finish();
-ROLLBACK;
-```
+---
 
 ## Permissions matrix (S10)
 
@@ -241,14 +199,43 @@ ROLLBACK;
 | Use sequences in `app`                  | ✓     | ✓         | ✓ (USAGE only) |
 | BYPASSRLS                               | ✓     | ✗         | ✗     |
 | EXPLAIN/pg_stat_*                       | ✓     | ✓         | ✗     |
-| pg_anonymizer masking functions         | ✓     | ✓ (S13)   | ✗     |
+| Schedule pg_cron jobs                   | ✓     | ✓         | ✗     |
 
-**DEFAULT PRIVILEGES** are set on the `admin` role: every table/sequence/function
-admin creates from now on auto-grants the rights above to `role_developer` and
-`role_app`. So a fresh `CREATE TABLE app.foo (...)` is immediately usable by
-developer and app without an explicit GRANT.
+`DEFAULT PRIVILEGES` are set on the `admin` role — every table/sequence/function
+admin creates auto-grants the right access to `role_developer` and `role_app`.
+A fresh `CREATE TABLE app.foo (...)` is immediately usable by developer and app
+without an explicit GRANT.
+
+---
+
+## `.psqlrc` (S15)
+A heavily-commented `.psqlrc` is baked into the image at `/etc/psqlrc` and
+loaded via `PSQLRC=/etc/psqlrc`, so every interactive psql session inside the
+container picks it up regardless of which user `docker exec` runs as.
+
+Source: [`config/psqlrc`](config/psqlrc) — edit and rebuild to change.
+
+What it sets:
+- `\timing on` (wall-clock duration after every query)
+- `\pset null '∅'` (NULL is unmistakable)
+- `\x auto` (auto-expanded display when rows are wider than terminal)
+- Unicode line style with bordered tables
+- `VERBOSITY verbose` (full error codes)
+- `ON_ERROR_STOP on` (don't power through broken `\i` scripts)
+- `PAGER=pspg --no-mouse` (tabular pager)
+- Per-database history files (no cross-DB history pollution)
+
+It also defines variable-shortcut macros — invoke as `:name` (no semicolon):
+- `:settings` — non-default `pg_settings`
+- `:locks` — granted/blocked locks per relation
+- `:activity` — pretty-printed `pg_stat_activity`
+- `:sizes` — per-table total size, sorted desc
+- `:slow` — top 20 slow queries from `pg_stat_statements`
+
+---
 
 ## Schemas (S8)
+
 | Schema   | Purpose                                                      |
 |----------|--------------------------------------------------------------|
 | `app`    | application tables; default target for ad-hoc work           |
@@ -259,27 +246,7 @@ so every database — existing and future — inherits it. The `app` schema is
 created in `template1`, so any database created via `CREATE DATABASE foo`
 also gets it.
 
-To add per-project schemas, run `CREATE SCHEMA myschema` in your database;
-adjust search_path on a per-database or per-role basis if needed.
-
-## Logs (S6)
-Postgres writes every event in two formats simultaneously:
-
-| File                                                    | Format     | Use                                     |
-|---------------------------------------------------------|------------|-----------------------------------------|
-| `volumes/logs/postgresql-YYYY-MM-DD.log`                | Plain text | `tail -f` for human reading             |
-| `volumes/logs/postgresql-YYYY-MM-DD.json`               | JSON       | `jq`-friendly; pipe to log aggregators  |
-
-Helper:
-```bash
-scripts/logs.sh        # tail -F today's JSON log, jq-formatted
-scripts/logs.sh 50     # last 50 lines instead of follow
-```
-
-Rotation: daily or 100 MB (whichever first), `log_truncate_on_rotation=on`.
-Live `docker logs postgres-dev` shows entrypoint output and the collector handoff
-at startup; thereafter postgres' stderr is captured by the logging collector and
-written to the files above.
+---
 
 ## Tuned settings (after S5)
 | Setting                              | Value     | Why                                       |
@@ -295,78 +262,259 @@ written to the files above.
 | `wal_level`                          | logical   | required for wal2json / logical repl      |
 | `max_wal_size` / `min_wal_size`      | 1 GB / 80 MB | dev-sized to limit disk usage         |
 
-To override per-project, edit `config/postgresql.conf` and `docker compose restart postgres`.
+Override per-project: edit `config/postgresql.conf`, then `docker compose
+restart postgres`.
 
-## Editing config without rebuilding
-`./config/` is mounted read-only. After editing `postgresql.conf` or `pg_hba.conf`:
+---
+
+## Logs (S6)
+Postgres writes every event in two formats simultaneously:
+
+| File                                                    | Format     | Use                                     |
+|---------------------------------------------------------|------------|-----------------------------------------|
+| `volumes/logs/postgresql-YYYY-MM-DD.log`                | Plain text | `tail -f` for human reading             |
+| `volumes/logs/postgresql-YYYY-MM-DD.json`               | JSON       | `jq`-friendly; pipe to log aggregators  |
+
 ```bash
-docker compose restart postgres
+scripts/logs.sh        # tail -F today's JSON log, jq-formatted
+scripts/logs.sh 50     # last 50 lines instead of follow
+docker exec postgres-dev pgbadger /var/log/postgresql/*.log -o /tmp/r.html  # html report
 ```
-No image rebuild needed.
 
-## How the entrypoint handles bind-mount permissions
-Bind mounts on Docker Desktop for Mac (virtiofs) restrict `chown` across the
-host/container boundary. The entrypoint detects the host UID/GID from the
-bind-mounted PGDATA directory and aligns the in-container `postgres` user to
-match — no chown required on Mac, and a no-op on Linux where the chown succeeds
-naturally.
+Rotation: daily or 100 MB (whichever first), `log_truncate_on_rotation=on`.
 
-## Helper scripts
-| Script                     | Purpose                                       |
-|----------------------------|-----------------------------------------------|
-| `scripts/up.sh`            | build + start + wait for healthy              |
-| `scripts/down.sh`          | stop the container (preserves data)           |
-| `scripts/reset.sh`         | wipe data and logs, force reinit on next up   |
-| `scripts/lint-dockerfile.sh` | run hadolint against Dockerfile             |
-| `scripts/logs.sh [N]`      | tail JSON logs (jq-formatted)                 |
-| `scripts/psql-admin.sh`    | open psql as `admin`                          |
-| `scripts/psql-developer.sh`| open psql as `developer`                      |
-| `scripts/psql-app.sh`      | open psql as `app`                            |
+---
+
+## Extensions
+
+14 extensions installed and CREATEd in `template1` so every new database
+inherits them. Versions verified on `linux/arm64`.
+
+| Extension            | Purpose                                                |
+|----------------------|--------------------------------------------------------|
+| pg_stat_statements   | aggregate query performance stats                      |
+| auto_explain         | log JSON plans for slow queries (≥ 1 s)                |
+| pg_buffercache       | inspect shared buffer cache                            |
+| pg_prewarm           | preload tables/indexes into cache                      |
+| pg_cron              | job scheduler                                          |
+| pgaudit              | structured audit log of every statement                |
+| pg_partman           | partition management (time/serial-based)               |
+| pg_squeeze           | online table compaction (no exclusive lock)            |
+| hypopg               | hypothetical indexes for `EXPLAIN`                     |
+| pg_hint_plan         | force query plans via `/*+ … */` comment hints         |
+| wal2json             | WAL → JSON output plugin (CDC, logical replication)    |
+| plpython3u           | untrusted Python procedural language                   |
+| pldebugger (pldbgapi)| step-debugger for PL/pgSQL                             |
+| tablefunc            | crosstab pivots, recursive `connectby()`               |
+| pgtap                | unit testing framework for SQL                         |
+
+### pg_stat_statements
+```sql
+SELECT calls, mean_exec_time::int AS mean_ms, substr(query,1,80)
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC LIMIT 10;
+SELECT pg_stat_statements_reset();    -- admin only; developer has read access
+```
+
+### auto_explain
+```bash
+jq -r 'select(.message | startswith("duration:")) | .message' \
+  volumes/logs/postgresql-$(date -u +%Y-%m-%d).json
+```
+
+### pg_cron
+Metadata lives in the `postgres` database; jobs can run in any database.
+**`role_developer` has full DML on `cron.job` and EXECUTE on the `cron`
+schema** — developers can schedule jobs without superuser.
+
+```sql
+-- in current DB:
+SELECT cron.schedule('cleanup-temp', '0 3 * * *',
+  $$ DELETE FROM app.tmp WHERE created_at < now() - interval '7 days' $$);
+
+-- cross-database:
+SELECT cron.schedule_in_database('refresh-mv', '*/10 * * * *',
+  $$ REFRESH MATERIALIZED VIEW app.daily_summary $$, 'analytics_db');
+
+-- inspect:
+SELECT * FROM cron.job;
+SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
+```
+
+### pgaudit
+Logs every statement (DDL/DML/READ/WRITE/FUNCTION/etc.) from every user.
+Output goes to both stderr text and the JSON log file with `AUDIT:` prefix.
+```bash
+jq -r 'select(.message | startswith("AUDIT:")) | .message' \
+  volumes/logs/postgresql-$(date -u +%Y-%m-%d).json
+```
+
+### pg_partman + bgw
+Background worker runs maintenance every hour as `admin`.
+```sql
+CREATE TABLE app.events (id bigserial, ts timestamptz NOT NULL, payload jsonb)
+  PARTITION BY RANGE (ts);
+SELECT partman.create_parent('app.events', 'ts', 'native', 'daily');
+```
+
+### pg_squeeze
+```sql
+SELECT squeeze.squeeze_table('app', 'big_table', NULL, NULL, NULL);
+```
+
+### pg_buffercache + pg_prewarm
+```sql
+SELECT count(*) AS buffers FROM pg_buffercache;
+SELECT pg_prewarm('app.large_table');
+```
+
+### hypopg
+Test indexes without building them:
+```sql
+SELECT hypopg_create_index('CREATE INDEX ON app.orders(customer_id)');
+EXPLAIN SELECT * FROM app.orders WHERE customer_id = 42;
+SELECT hypopg_reset();
+```
+
+### pg_hint_plan
+Auto-loaded per session via `session_preload_libraries`.
+```sql
+/*+ SeqScan(t) */ SELECT * FROM app.t WHERE id = 42;
+/*+ IndexScan(t orders_customer_idx) */ SELECT * FROM app.orders t;
+```
+
+### wal2json
+Output plugin (no `CREATE EXTENSION`):
+```sql
+SELECT pg_create_logical_replication_slot('cdc_slot', 'wal2json');
+SELECT * FROM pg_logical_slot_peek_changes('cdc_slot', NULL, NULL);
+SELECT pg_drop_replication_slot('cdc_slot');
+```
+
+### plpython3u
+Superuser-only; untrusted (full Python access):
+```sql
+DO $$ plpy.notice('hello from python ' || sys.version) $$ LANGUAGE plpython3u;
+```
+
+### pldebugger
+Step-debugger API for PL/pgSQL. Use a client like pgAdmin or DBeaver to
+attach and step through function execution.
+
+### tablefunc
+```sql
+SELECT * FROM crosstab($$
+  VALUES ('row1','a',1),('row1','b',2),('row2','a',3),('row2','b',4)
+$$) AS ct(rowname text, a int, b int);
+```
+
+### pgtap
+```sql
+BEGIN;
+SELECT plan(3);
+SELECT has_table('app','orders','orders table exists');
+SELECT col_not_null('app','orders','id','id is NOT NULL');
+SELECT pass('arbitrary assertion');
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+---
 
 ## CLI tools (S14)
-Baked into the image and accessible via `docker exec` or directly inside an
-interactive shell:
+Baked into the image; accessible via `docker exec`:
 
-| Tool          | Use                                                                                | Invocation example                              |
-|---------------|------------------------------------------------------------------------------------|-------------------------------------------------|
-| `pgcli`       | enhanced psql with autocomplete + syntax highlighting                              | `docker exec -it postgres-dev pgcli -U admin -d postgres` |
-| `pg_activity` | top-style live view of postgres queries                                            | `docker exec -it postgres-dev pg_activity -U admin`        |
-| `pgbadger`    | parse log files into HTML performance reports                                      | `docker exec postgres-dev pgbadger /var/log/postgresql/*.log -o /tmp/r.html` |
-| `pspg`        | tabular pager for psql; auto-used via `PAGER=pspg` baked into the image            | (used implicitly by psql/pgcli)                 |
-| `sqitch`      | SQL-native database migration management                                           | `docker exec -it postgres-dev sqitch --help`    |
-| `pgbench`     | built-in load testing tool (postgresql17 server package)                           | `docker exec -e PGPASSWORD=... postgres-dev pgbench -i -U admin -p 5499 -d postgres` |
+| Tool          | Use                                                                                | Invocation                                                            |
+|---------------|------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
+| `pgcli`       | enhanced psql with autocomplete + syntax highlighting                              | `docker exec -it postgres-dev pgcli -U admin -d postgres`             |
+| `pg_activity` | top-style live view of postgres queries                                            | `docker exec -it postgres-dev pg_activity -U admin`                   |
+| `pgbadger`    | parse log files into HTML performance reports                                      | `docker exec postgres-dev pgbadger /var/log/postgresql/*.log -o /tmp/report.html` |
+| `pspg`        | tabular pager for psql; auto-used via `PAGER=pspg`                                 | (implicit via `.psqlrc`)                                              |
+| `sqitch`      | SQL-native database migration management                                           | `docker exec -it postgres-dev sqitch --help`                          |
+| `pgbench`     | built-in load testing                                                              | see below                                                             |
 
 ### pgbench prerequisites
-`pgbench -i` (initialize) needs CREATE TABLE rights, so run it as the `admin`
-user, not `app`. Once tables exist, runs against `app` (or any role with DML)
-work normally.
-
+`pgbench -i` needs CREATE TABLE rights, so initialize as `admin`:
 ```bash
 docker exec -e PGPASSWORD=admin postgres-dev pgbench -i -U admin -p 5499 -d postgres
 docker exec -e PGPASSWORD=admin postgres-dev pgbench -c 4 -j 2 -T 10 -U admin -p 5499 postgres
 ```
+Initialization runs as admin; subsequent runs work for any role with DML
+(developer or app).
+
+---
+
+## Helper scripts
+| Script                       | Purpose                                       |
+|------------------------------|-----------------------------------------------|
+| `scripts/up.sh`              | build + start + wait for healthy              |
+| `scripts/down.sh`            | stop the container (preserves data)           |
+| `scripts/reset.sh`           | wipe data and logs, force reinit on next up   |
+| `scripts/lint-dockerfile.sh` | run hadolint against Dockerfile               |
+| `scripts/logs.sh [N]`        | tail JSON logs (jq-formatted)                 |
+| `scripts/psql-admin.sh`      | open psql as `admin`                          |
+| `scripts/psql-developer.sh`  | open psql as `developer`                      |
+| `scripts/psql-app.sh`        | open psql as `app`                            |
+
+---
 
 ## In-container utilities (added in S4)
-For ad-hoc debugging inside the container:
 
-| Tool      | Use                                                    |
-|-----------|--------------------------------------------------------|
-| `ps`/`top`| process inspection (procps-ng)                         |
-| `less`    | paged log/file viewing (`LESS=-iMRSx4` set in image)   |
-| `vi`      | edit configs in-container (`vim-minimal` package)      |
-| `ping`    | basic reachability (`iputils`)                         |
-| `dig`     | DNS lookups (`bind-utils`)                             |
-| `lsof`    | open files/sockets per process                         |
-| `jq`      | inspect JSON output, parse JSONB query results         |
-| `tar` / `gzip` | exports for `pg_dump`                             |
-| `find`    | locate files (`findutils`)                             |
-| `strace`  | last-resort syscall tracing                            |
-| `curl`    | network reachability tests                             |
+| Tool      | Use                                                  |
+|-----------|------------------------------------------------------|
+| `ps`/`top`| process inspection (procps-ng)                       |
+| `less`    | paged log/file viewing (`LESS=-iMRSx4` set in image) |
+| `vi`      | edit configs in-container (vim-minimal)              |
+| `ping`    | basic reachability (iputils)                         |
+| `dig`     | DNS lookups (bind-utils)                             |
+| `lsof`    | open files/sockets per process                       |
+| `jq`      | inspect JSON output, parse JSONB query results       |
+| `tar`/`gzip` | exports for `pg_dump`                             |
+| `find`    | locate files (findutils)                             |
+| `strace`  | last-resort syscall tracing                          |
+| `curl`    | network reachability tests                           |
 
-Note: package is `vim-minimal`, which provides `vi` (no `vim` binary).
+Note: package is `vim-minimal`, which provides `vi` only (no `vim` binary).
+
+---
+
+## Troubleshooting
+
+### Init scripts didn't re-run
+By design — they only execute when PGDATA is empty. Run `scripts/reset.sh`.
+
+### `permission denied` for postgres on bind-mount data
+Docker Desktop Mac restricts `chown` across virtiofs. The entrypoint handles
+this automatically by aligning the in-container postgres UID/GID to the host's.
+If you see this error after upgrading Docker Desktop, run `scripts/reset.sh`.
+
+### Connection refused from host
+Check the port: it's **5499**, not 5432. The container's healthcheck
+authenticates as `admin`, so if your `.env` doesn't have
+`POSTGRES_ADMIN_PASSWORD`, the healthcheck will fail and `up.sh` times out.
+
+### "container name `postgres-dev` already in use"
+Stale container from a crashed run:
+```bash
+docker rm -f postgres-dev
+docker network rm postgres_default 2>/dev/null
+scripts/up.sh
+```
+
+### pgbadger says "command not found" inside the container
+You may have an older image. Rebuild:
+```bash
+docker compose build --no-cache
+scripts/up.sh
+```
+
+### `.psqlrc` settings (timing, ∅, macros) don't appear
+`psql -c "..."` deliberately skips `.psqlrc`. Use heredoc or interactive
+mode (`docker exec -it ... psql ...`).
 
 ---
 
 ## Documents
 - [PLAN.md](PLAN.md) — architecture and design decisions
 - [TASKS.md](TASKS.md) — slice-by-slice implementation tracker
+- [config/psqlrc](config/psqlrc) — interactive psql defaults (commented)

@@ -327,52 +327,38 @@ demonstrable increment.
 
 **Goal:** in-container UX polish and documentation completeness.
 
-- [ ] **15.1** Write `config/psqlrc` (heavily commented):
-  ```
-  -- Show timing for every query
-  \timing on
-  -- Display NULL as a visible glyph rather than empty
-  \pset null '∅'
-  -- Cleaner prompt: user@db (transaction marker)#
-  \set PROMPT1 '%n@%/%R%# '
-  \set PROMPT2 '  > '
-  -- Use pspg as pager (set globally via PAGER env, but explicit here too)
-  \setenv PAGER pspg
-  -- Verbose error reporting
-  \set VERBOSITY verbose
-  -- Default to expanded display only when output is wide
-  \x auto
-  -- History per database (one history file per db, kept under ~/.psql_history.<db>)
-  \set HISTFILE ~/.psql_history- :DBNAME
-  -- Don't store duplicate history entries
-  \set HISTCONTROL ignoredups
-  ```
-- [ ] **15.2** Mount or copy `.psqlrc` to `/var/lib/pgsql/.psqlrc` in image, owned by postgres user
-- [ ] **15.3** Test: `\timing` is on automatically when connecting
-- [ ] **15.4** Test: NULL displayed as `∅`
-- [ ] **15.5** README: comprehensive final pass — covering all sections below
-- [ ] **15.6** Commit: `feat(s15): psqlrc and ux polish`
+- [x] **15.1** Write `config/psqlrc` (heavily commented): timing, NULL=∅, prompt with transaction marker, pspg pager, history per DB, verbosity verbose, ON_ERROR_STOP, plus :settings/:locks/:activity/:sizes/:slow macros
+- [x] **15.2** Copy to `/etc/psqlrc` in image, set `ENV PSQLRC=/etc/psqlrc` (so any user via `docker exec` picks it up — `~/.psqlrc` requires HOME to be set right which root's HOME isn't)
+- [x] **15.3** Test: `\timing` is on (verified via heredoc)
+- [x] **15.4** Test: NULL displayed as `∅` (verified)
+- [x] **15.5** README: comprehensive final pass with TOC and all required sections
+- [x] **15.6** Commit: `feat(s15): psqlrc and ux polish`
+
+### S15 Notes
+- **PSQLRC env var** is the right hook, not `~/.psqlrc`. With no USER directive in Dockerfile, `docker exec` runs as root (HOME=/root) — `~/.psqlrc` lookup fails. Putting the file at `/etc/psqlrc` and pointing `PSQLRC` at it sidesteps the HOME issue.
+- `psql -c "..."` deliberately skips `.psqlrc`; tests use heredoc.
+- All 15 required README sections delivered.
 
 ### Required README Sections (final state)
-- [ ] Title + one-paragraph description
-- [ ] Prerequisites (Docker, docker compose v2, ~1GB disk)
-- [ ] Quick start (5 commands max)
-- [ ] **Default users + passwords table** (admin/admin, developer/developer, app/app — note this is dev-only, override via .env)
-- [ ] Connection examples for each user (psql + pgcli)
-- [ ] Volume layout
-- [ ] Resetting the environment (full procedure)
-- [ ] Updating config without rebuild
-- [ ] Architecture support note (auto-detect; pgloader emulation on arm64)
-- [ ] **Sample `docker-compose.override.yml`** snippet showing how a downstream project consumes this
-- [ ] Permissions matrix (admin/developer/app columns × CONNECT/SCHEMA USAGE/CREATE/DML/DDL/RLS rows)
-- [ ] **Reference to `.psqlrc`** (where it is, what it does)
-- [ ] Extension list with one usage example each:
-  - pg_stat_statements, auto_explain, pg_cron (incl. cross-db schedule_in_database example), pgaudit (where logs go, sample entry), pg_partman, pg_squeeze, pg_buffercache, pg_prewarm, hypopg, pg_hint_plan, wal2json, plpython3u, pgtap, tablefunc, pg_anonymizer
-- [ ] CLI tools list with example invocation each
-- [ ] **pgbench prerequisites** (note: needs `pgbench -i` as admin or pre-existing tables; app user cannot init)
-- [ ] **pg_cron access doc** — exactly who has USAGE on cron schema, who can call `cron.schedule_in_database`, example
-- [ ] Logging guide (where stderr goes vs JSON file, how to use scripts/logs.sh, pgbadger report)
-- [ ] Troubleshooting (common errors)
+- [x] Title + one-paragraph description
+- [x] Table of contents
+- [x] Prerequisites
+- [x] Quick start
+- [x] Default users + passwords table
+- [x] Connection examples (helper scripts + raw psql + in-container)
+- [x] Volume layout
+- [x] Resetting the environment
+- [x] Updating config without rebuild
+- [x] Architecture support note (multi-arch + bind-mount UID alignment)
+- [x] Sample `docker-compose.override.yml` (two patterns: extends vs include)
+- [x] Permissions matrix
+- [x] Reference to `.psqlrc` (path, contents, macros)
+- [x] Extension list with usage example each (14 extensions)
+- [x] CLI tools list with example invocation
+- [x] pgbench prerequisites
+- [x] pg_cron access doc (developer can schedule, has DML on cron.job)
+- [x] Logging guide (text + JSON, scripts/logs.sh, pgbadger)
+- [x] Troubleshooting (5 common issues)
 
 ---
 

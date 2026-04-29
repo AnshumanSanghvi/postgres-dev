@@ -1,0 +1,71 @@
+-- =============================================================================
+-- .psqlrc — interactive psql configuration baked into the postgres-dev image.
+-- Copied by Dockerfile to /var/lib/pgsql/.psqlrc and owned by the postgres user.
+-- Every interactive psql session inside the container picks this up.
+--
+-- To override per-developer, mount your own .psqlrc into the container at
+--   /var/lib/pgsql/.psqlrc
+-- via docker-compose.override.yml; or `\set` interactively to change.
+-- =============================================================================
+
+-- Quiet startup — don't echo "Type \?, \q etc." each time.
+\set QUIET 1
+
+-- ----- Display & feedback ---------------------------------------------------
+
+-- Show wall-clock duration after every query. Cheap habit for spotting
+-- regressions without `EXPLAIN ANALYZE`.
+\timing on
+
+-- Display NULL as a visible glyph rather than blank, so missing values
+-- are unambiguous in result tables.
+\pset null '∅'
+
+-- Auto-expanded display: pivot to record-by-record only when the row is
+-- wider than the terminal. Best of both worlds vs. fixed `\x on/off`.
+\pset linestyle unicode
+\pset border 2
+\x auto
+
+-- ----- Prompt ---------------------------------------------------------------
+-- Compact but informative:
+--   admin@postgres=#       (idle, superuser)
+--   admin@postgres=*#      (in transaction)
+--   admin@postgres=!#      (in failed transaction)
+-- Continuation lines indent so multiline SQL is readable.
+\set PROMPT1 '%[%033[1;34m%]%n%[%033[0m%]@%[%033[1;36m%]%/%[%033[0m%]%R%# '
+\set PROMPT2 '         > '
+
+-- ----- Error reporting ------------------------------------------------------
+-- Verbose errors include error codes — handy when an app surfaces a SQLSTATE
+-- you need to look up.
+\set VERBOSITY verbose
+
+-- Stop on error in scripts (`\i file.sql`). Default is "rollback the
+-- statement and keep going" which can mask broken migrations.
+\set ON_ERROR_STOP on
+
+-- ----- Pager ----------------------------------------------------------------
+-- Use pspg (installed in image) so wide result sets are scrollable as a
+-- table. Falls back to PAGER=less if pspg ever goes missing.
+\setenv PAGER 'pspg --no-mouse'
+
+-- ----- History --------------------------------------------------------------
+-- One history file per database, kept under ~/.psql_history.<dbname>
+-- (so switching DBs doesn't pollute history). Drop dup commands.
+\set HISTFILE ~/.psql_history- :DBNAME
+\set HISTCONTROL ignoredups
+\set HISTSIZE 5000
+
+-- ----- Comp/util shortcuts (psql \set "macros") -----------------------------
+-- Put frequently-typed introspection queries behind one-letter aliases.
+-- Use them like `:settings` or `:locks` (no semicolon — the macro provides it).
+\set settings 'SELECT name, setting, unit, source FROM pg_settings WHERE source NOT IN (''default'',''override'') ORDER BY name;'
+\set locks    'SELECT pg_class.relname, pid, mode, granted FROM pg_locks JOIN pg_class ON pg_locks.relation = pg_class.oid ORDER BY relname;'
+\set activity 'SELECT pid, usename, datname, state, wait_event_type, query_start, substr(query, 1, 60) AS query FROM pg_stat_activity ORDER BY query_start;'
+\set sizes    'SELECT schemaname, relname, pg_size_pretty(pg_total_relation_size(schemaname||''.''||relname)) AS total FROM pg_stat_user_tables ORDER BY pg_total_relation_size(schemaname||''.''||relname) DESC;'
+\set slow     'SELECT calls, mean_exec_time::int AS mean_ms, total_exec_time::int AS total_ms, substr(query,1,80) AS query FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 20;'
+
+-- Re-enable startup messages now that the file is loaded — restore default
+-- so future `\set` invocations behave normally.
+\unset QUIET

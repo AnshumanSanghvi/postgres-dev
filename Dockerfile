@@ -148,6 +148,12 @@ RUN mkdir -p "$PGDATA" /var/log/postgresql \
 
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
+# .psqlrc — heavily commented; see config/psqlrc for the source.
+# Placed at /etc/psqlrc and pointed to via PSQLRC env so every psql session
+# (regardless of which user `docker exec` runs as) reads the same defaults.
+COPY --chmod=644 config/psqlrc /etc/psqlrc
+ENV PSQLRC=/etc/psqlrc
+
 # Entrypoint starts as root so it can fix bind-mount ownership,
 # then drops to the postgres user via runuser before exec'ing postgres.
 EXPOSE 5499
