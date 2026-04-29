@@ -241,4 +241,12 @@ TASKS.md lists all 15 slices in order.
   pip versions for pgcli/pg_activity. Reproducibility > "latest".
 - **Lint the Dockerfile** — `scripts/lint-dockerfile.sh` runs hadolint; should pass on
   every slice.
+- **Step-wise Dockerfile** — each `RUN` is a logical, independently-cacheable unit
+  (dnf bootstrap → PGDG repo → core packages → OS utils → extensions → CLI tools →
+  filesystem). Mega-`RUN`s are forbidden. Use multi-stage builds when source
+  compilation is required (builder stage with gcc/make, runtime stage clean).
+- **Skip-on-arch policy** — if any single extension fails to build/install on aarch64
+  but works on amd64 (or vice versa), skip it on the failing arch with a clear log
+  message and document the omission in README. Do not block the whole image on a
+  single problematic extension.
 - **No image publishing** — git repo + docker compose only.

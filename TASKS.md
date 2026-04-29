@@ -61,15 +61,22 @@ demonstrable increment.
 
 **Goal:** mount custom postgresql.conf and pg_hba.conf, enforce scram-sha-256, listen on 5499.
 
-- [ ] **2.1** Write minimal `config/postgresql.conf` (port 5499, listen all, password_encryption=scram-sha-256)
-- [ ] **2.2** Write `config/pg_hba.conf` (local + host scram-sha-256)
-- [ ] **2.3** Update Dockerfile/entrypoint to start with `-c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf`
-- [ ] **2.4** Build & run with `-v ./config:/etc/postgresql:ro -p 5499:5499`
-- [ ] **2.5** Verify: `psql -h localhost -p 5499 -U postgres` connects (with prompt for password)
-- [ ] **2.6** Verify: wrong password rejected
-- [ ] **2.7** Verify: `SHOW password_encryption;` returns `scram-sha-256`
-- [ ] **2.8** Update README: how to connect with password on 5499; note SSL is disabled
-- [ ] **2.9** Commit: `feat(s2): custom config, scram-sha-256 auth, port 5499`
+- [x] **2.1** Write minimal `config/postgresql.conf` (port 5499, listen all, password_encryption=scram-sha-256)
+- [x] **2.2** Write `config/pg_hba.conf` (local + host scram-sha-256)
+- [x] **2.3** Update Dockerfile/entrypoint to start with `-c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf`
+- [x] **2.4** Build & run with `-v ./config:/etc/postgresql:ro -p 5499:5499`
+- [x] **2.5** Verify: `psql -h localhost -p 5499 -U postgres` connects with password
+- [x] **2.6** Verify: wrong password rejected
+- [x] **2.7** Verify: `SHOW password_encryption;` returns `scram-sha-256`
+- [x] **2.8** Update README: how to connect with password on 5499; note SSL is disabled
+- [x] **2.9** Refactor Dockerfile to step-wise structure (cacheable RUN per logical unit)
+- [x] **2.10** Commit: `feat(s2): custom config, scram-sha-256 auth, port 5499`
+
+### S2 Implementation Notes
+- Entrypoint now requires `POSTGRES_PASSWORD` on first boot; uses process-substitution `--pwfile` so password never lands on disk
+- `initdb --auth-host=scram-sha-256 --auth-local=scram-sha-256` makes the cluster scram-sha-256-only from the start
+- Dockerfile reorganized into 4 logical steps (dnf bootstrap → PGDG repo → PG core → fs/entrypoint) to maximize layer caching for future slices
+- New working agreements added to PLAN.md: step-wise Dockerfile, skip-on-arch policy
 
 ---
 
