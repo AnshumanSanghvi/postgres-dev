@@ -221,21 +221,20 @@ demonstrable increment.
 
 **Goal:** wire up grants so admin can create objects and developer/app inherit access.
 
-- [ ] **10.1** Write `initdb/04_permissions.sql`:
-  - Schema USAGE: `role_developer` on app+public; `role_app` on app only
-  - Existing-object grants: developer DML+TRUNCATE on all tables in app+public, EXECUTE on functions; app DML on app tables, USAGE on app sequences
-  - DEFAULT PRIVILEGES set FOR ROLE admin in schemas app and public, granting to role_developer and role_app appropriately
-  - GRANT CONNECT ON DATABASE postgres TO role_developer, role_app
-- [ ] **10.2** Reset, verify the test matrix:
-  - As admin: `CREATE TABLE app.t1(id serial, name text);`
-  - As developer: SELECT/INSERT/UPDATE/DELETE/TRUNCATE on app.t1 ✓
-  - As developer: `CREATE TABLE app.t2(id int);` ✗ (should fail)
-  - As app: SELECT/INSERT/UPDATE/DELETE on app.t1 ✓
-  - As app: TRUNCATE app.t1 ✗
-  - As app: `SELECT * FROM public.pg_stat_statements;` ✗
-- [ ] **10.3** Test RLS enforcement: admin creates table with policy, developer/app see filtered rows
-- [ ] **10.4** Update README: permissions matrix, DEFAULT PRIVILEGES explanation
-- [ ] **10.5** Commit: `feat(s10): role grants and default privileges`
+- [x] **10.1** Write `initdb/04_permissions.sql` — USAGE, existing-object grants, DEFAULT PRIVILEGES (in template1 and postgres)
+- [x] **10.2** Reset and run full test matrix — all 9 cases pass:
+  - T1 admin DDL ✓ T2 developer DML ✓ T3 developer no DDL ✓
+  - T4 app DML ✓ T5 app no TRUNCATE ✓ T6 app no DDL ✓
+  - T7 DEFAULT PRIVILEGES auto-grants future objects ✓
+  - T8 app blocked from public.* tables ✓
+  - T9 RLS enforced for developer + app, BYPASSRLS works for admin ✓
+- [x] **10.3** Update README: full permissions matrix, DEFAULT PRIVILEGES explanation
+- [x] **10.4** Commit: `feat(s10): role grants and default privileges`
+
+### S10 Notes
+- USAGE on `public` is granted to PUBLIC by default (we only revoked CREATE in 02_); so app can call public extension functions even though it can't read public tables
+- DEFAULT PRIVILEGES `FOR ROLE admin` only fires for objects admin creates — verified by creating `public.future` as admin and confirming developer auto-inherits SELECT
+- pg_anonymizer access for developer is deferred to S13 (when extension is installed)
 
 ---
 

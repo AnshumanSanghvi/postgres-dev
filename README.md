@@ -4,7 +4,7 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S9 — admin/developer/app users with env-injected passwords. See
+**Status:** S10 — permissions matrix wired up with DEFAULT PRIVILEGES. See
 [TASKS.md](TASKS.md) for slice progress.
 
 ---
@@ -83,6 +83,28 @@ PGPASSWORD=admin psql -h localhost -p 5499 -U admin -d postgres
 **Override passwords:** edit `.env` (gitignored) before first `up.sh`. After
 first boot the passwords are baked into the cluster — to change them, either
 `scripts/reset.sh` (wipes data) or `ALTER ROLE admin PASSWORD '...'` etc.
+
+## Permissions matrix (S10)
+
+| Action                                  | admin | developer | app   |
+|-----------------------------------------|-------|-----------|-------|
+| CONNECT to databases                    | ✓     | ✓         | ✓     |
+| USAGE on `app` schema                   | ✓     | ✓         | ✓     |
+| USAGE on `public` schema (for extns)    | ✓     | ✓         | ✓     |
+| CREATE in `app` (DDL)                   | ✓     | ✗         | ✗     |
+| CREATE in `public` (DDL)                | ✓     | ✗         | ✗     |
+| SELECT/INSERT/UPDATE/DELETE on `app.*`  | ✓     | ✓         | ✓     |
+| TRUNCATE on `app.*`                     | ✓     | ✓         | ✗     |
+| SELECT on `public.*` (non-extn tables)  | ✓     | ✓         | ✗     |
+| Use sequences in `app`                  | ✓     | ✓         | ✓ (USAGE only) |
+| BYPASSRLS                               | ✓     | ✗         | ✗     |
+| EXPLAIN/pg_stat_*                       | ✓     | ✓         | ✗     |
+| pg_anonymizer masking functions         | ✓     | ✓ (S13)   | ✗     |
+
+**DEFAULT PRIVILEGES** are set on the `admin` role: every table/sequence/function
+admin creates from now on auto-grants the rights above to `role_developer` and
+`role_app`. So a fresh `CREATE TABLE app.foo (...)` is immediately usable by
+developer and app without an explicit GRANT.
 
 ## Schemas (S8)
 | Schema   | Purpose                                                      |
