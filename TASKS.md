@@ -139,22 +139,17 @@ demonstrable increment.
 
 **Goal:** dual-format logging with rotation.
 
-- [ ] **6.1** Update `config/postgresql.conf`:
-  - `log_destination = 'stderr,jsonlog'`
-  - `logging_collector = on`
-  - `log_directory = '/var/log/postgresql'`
-  - `log_filename = 'postgresql-%Y-%m-%d.json'`
-  - `log_min_duration_statement = 0`
-  - `log_rotation_age = 1d`, `log_rotation_size = 100MB`, `log_truncate_on_rotation = on`
-  - `log_lock_waits = on`, `deadlock_timeout = 1s`
-  - `log_line_prefix = '%m [%p] %q%u@%d '`
-- [ ] **6.2** Ensure `/var/log/postgresql` has correct permissions in Dockerfile
-- [ ] **6.3** Restart, run a query, confirm:
-  - Text appears in `docker compose logs postgres` (stderr)
-  - JSON appears in `./volumes/logs/postgresql-*.json`
-- [ ] **6.4** Add `scripts/logs.sh` — tails JSON file with `jq` pretty-printing
-- [ ] **6.5** Update README: log layout, formats, where to find them, how to use scripts/logs.sh
-- [ ] **6.6** Commit: `feat(s6): dual stderr+json logging with rotation`
+- [x] **6.1** Update `config/postgresql.conf` with logging settings (log_filename uses `.log`; postgres replaces extension to `.json` for jsonlog destination)
+- [x] **6.2** `/var/log/postgresql` already chowned by entrypoint (S3)
+- [x] **6.3** Restart, run a query — both `postgresql-YYYY-MM-DD.log` and `.json` files appear
+- [x] **6.4** Add `scripts/logs.sh` — tails today's JSON file with jq pretty-printing
+- [x] **6.5** Update README: log layout, formats, helper script, collector handoff caveat
+- [x] **6.6** Commit: `feat(s6): dual stderr+json logging with rotation`
+
+### S6 Notes
+- Postgres replaces (not appends) the file extension for jsonlog: `.log` → `.json`
+- With `logging_collector=on`, `docker logs` only shows pre-handoff output; live tailing must be done from the volume-mounted files
+- `scripts/logs.sh` jq-formats: `timestamp [severity] user@db message`
 
 ---
 

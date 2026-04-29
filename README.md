@@ -4,7 +4,8 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S5 — memory/timeout/WAL tuning. See [TASKS.md](TASKS.md) for slice progress.
+**Status:** S6 — dual-format logging (stderr text + JSON file + rotation). See
+[TASKS.md](TASKS.md) for slice progress.
 
 ---
 
@@ -52,6 +53,25 @@ them after edits:
 scripts/reset.sh              # confirms before deleting
 scripts/up.sh                 # rebuilds and reinitializes
 ```
+
+## Logs (S6)
+Postgres writes every event in two formats simultaneously:
+
+| File                                                    | Format     | Use                                     |
+|---------------------------------------------------------|------------|-----------------------------------------|
+| `volumes/logs/postgresql-YYYY-MM-DD.log`                | Plain text | `tail -f` for human reading             |
+| `volumes/logs/postgresql-YYYY-MM-DD.json`               | JSON       | `jq`-friendly; pipe to log aggregators  |
+
+Helper:
+```bash
+scripts/logs.sh        # tail -F today's JSON log, jq-formatted
+scripts/logs.sh 50     # last 50 lines instead of follow
+```
+
+Rotation: daily or 100 MB (whichever first), `log_truncate_on_rotation=on`.
+Live `docker logs postgres-dev` shows entrypoint output and the collector handoff
+at startup; thereafter postgres' stderr is captured by the logging collector and
+written to the files above.
 
 ## Tuned settings (after S5)
 | Setting                              | Value     | Why                                       |
