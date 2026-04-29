@@ -4,7 +4,7 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S3 — docker compose, volumes, helper scripts. See [TASKS.md](TASKS.md)
+**Status:** S4 — OS utilities for in-container debugging. See [TASKS.md](TASKS.md)
 for slice progress.
 
 ---
@@ -75,6 +75,25 @@ naturally.
 | `scripts/down.sh`          | stop the container (preserves data)           |
 | `scripts/reset.sh`         | wipe data and logs, force reinit on next up   |
 | `scripts/lint-dockerfile.sh` | run hadolint against Dockerfile             |
+
+## In-container utilities (added in S4)
+For ad-hoc debugging inside the container:
+
+| Tool      | Use                                                    |
+|-----------|--------------------------------------------------------|
+| `ps`/`top`| process inspection (procps-ng)                         |
+| `less`    | paged log/file viewing (`LESS=-iMRSx4` set in image)   |
+| `vi`      | edit configs in-container (`vim-minimal` package)      |
+| `ping`    | basic reachability (`iputils`)                         |
+| `dig`     | DNS lookups (`bind-utils`)                             |
+| `lsof`    | open files/sockets per process                         |
+| `jq`      | inspect JSON output, parse JSONB query results         |
+| `tar` / `gzip` | exports for `pg_dump`                             |
+| `find`    | locate files (`findutils`)                             |
+| `strace`  | last-resort syscall tracing                            |
+| `curl`    | network reachability tests                             |
+
+Note: package is `vim-minimal`, which provides `vi` (no `vim` binary).
 
 ---
 

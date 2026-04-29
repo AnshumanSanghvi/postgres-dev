@@ -23,7 +23,8 @@ ENV PG_MAJOR=${PG_MAJOR} \
     PATH=/usr/pgsql-17/bin:${PATH} \
     TZ=UTC \
     LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+    LC_ALL=C.UTF-8 \
+    LESS=-iMRSx4
 
 # --- Step 1: Bootstrap dnf ---------------------------------------------------
 # OL9-slim ships microdnf only. dnf gives us richer dependency resolution and
@@ -51,6 +52,22 @@ RUN dnf -y install \
       "postgresql${PG_MAJOR}-server" \
       "postgresql${PG_MAJOR}-contrib" \
       glibc-langpack-en \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/yum
+
+# --- Step 4: OS terminal utilities (in-container debugging) -----------------
+RUN dnf -y install \
+      procps-ng \
+      less \
+      vim-minimal \
+      iputils \
+      bind-utils \
+      lsof \
+      jq \
+      tar \
+      gzip \
+      findutils \
+      strace \
     && dnf clean all \
     && rm -rf /var/cache/dnf /var/cache/yum
 

@@ -108,12 +108,17 @@ demonstrable increment.
 
 **Goal:** add terminal utilities to the image for in-container debugging.
 
-- [ ] **4.1** Add to Dockerfile: procps-ng, less, vim-minimal, iputils, bind-utils, lsof, jq, tar, gzip, findutils, strace, curl
-- [ ] **4.2** Set `ENV LESS=-iMRSx4`
-- [ ] **4.3** Build & run
-- [ ] **4.4** Test: each utility resolves on PATH (`which X` for each)
-- [ ] **4.5** Update README: list of in-container utilities
-- [ ] **4.6** Commit: `feat(s4): add os utilities for in-container debugging`
+- [x] **4.1** Add to Dockerfile: procps-ng, less, vim-minimal, iputils, bind-utils, lsof, jq, tar, gzip, findutils, strace (curl already in base)
+- [x] **4.2** Set `ENV LESS=-iMRSx4`
+- [x] **4.3** Build & run
+- [x] **4.4** Test: each utility resolves (use `command -v`, not `which`, since `which` itself is not in OL9-slim base)
+- [x] **4.5** Update README: list of in-container utilities
+- [x] **4.6** Commit: `feat(s4): add os utilities for in-container debugging`
+
+### S4 Notes
+- `vim-minimal` installs `vi` only; no `vim` binary
+- `which` package is not in OL9-slim base; using shell built-in `command -v` instead
+- curl is already present in OL9-slim base, no install needed
 
 ---
 
