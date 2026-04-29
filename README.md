@@ -4,8 +4,7 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S4 — OS utilities for in-container debugging. See [TASKS.md](TASKS.md)
-for slice progress.
+**Status:** S5 — memory/timeout/WAL tuning. See [TASKS.md](TASKS.md) for slice progress.
 
 ---
 
@@ -53,6 +52,22 @@ them after edits:
 scripts/reset.sh              # confirms before deleting
 scripts/up.sh                 # rebuilds and reinitializes
 ```
+
+## Tuned settings (after S5)
+| Setting                              | Value     | Why                                       |
+|--------------------------------------|-----------|-------------------------------------------|
+| `shared_buffers`                     | 128 MB    | ~25% of 512 MiB container                 |
+| `effective_cache_size`               | 384 MB    | ~75% (planner hint, not allocated)        |
+| `work_mem`                           | 4 MB      | per-sort/hash; conservative for dev       |
+| `maintenance_work_mem`               | 64 MB     | vacuum, create index                      |
+| `max_connections`                    | 50        | matches dev workload                      |
+| `statement_timeout`                  | 60 s      | abort runaway queries                     |
+| `idle_in_transaction_session_timeout`| 5 min     | kill zombie transactions                  |
+| `lock_timeout`                       | 10 s      | cap waits on row/table locks              |
+| `wal_level`                          | logical   | required for wal2json / logical repl      |
+| `max_wal_size` / `min_wal_size`      | 1 GB / 80 MB | dev-sized to limit disk usage         |
+
+To override per-project, edit `config/postgresql.conf` and `docker compose restart postgres`.
 
 ## Editing config without rebuilding
 `./config/` is mounted read-only. After editing `postgresql.conf` or `pg_hba.conf`:

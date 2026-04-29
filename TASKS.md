@@ -126,17 +126,12 @@ demonstrable increment.
 
 **Goal:** dev-tuned postgresql.conf — full settings.
 
-- [ ] **5.1** Update `config/postgresql.conf`:
-  - `shared_buffers = 128MB`, `effective_cache_size = 384MB`, `work_mem = 4MB`, `maintenance_work_mem = 64MB`
-  - `max_connections = 50`
-  - `statement_timeout = 60s`, `idle_in_transaction_session_timeout = 5min`, `lock_timeout = 10s`
-  - `max_wal_size = 1GB`, `min_wal_size = 80MB`, `wal_keep_size = 0`, `wal_level = logical`
-  - `timezone = 'UTC'`, `log_timezone = 'UTC'`
-- [ ] **5.2** Restart container, verify all settings via `SHOW` queries
-- [ ] **5.3** Test: long-running query gets killed by `statement_timeout`
-- [ ] **5.4** Test: idle transaction killed by `idle_in_transaction_session_timeout` (lower temporarily for test)
-- [ ] **5.5** Update README: document each tunable and how to override per-project
-- [ ] **5.6** Commit: `feat(s5): memory, timeout, and wal configuration`
+- [x] **5.1** Update `config/postgresql.conf` with memory/timeout/WAL settings
+- [x] **5.2** Restart container, verify all settings via `pg_settings` query
+- [x] **5.3** Test: `SET LOCAL statement_timeout='500ms'; SELECT pg_sleep(2)` → cancelled
+- [x] **5.4** Test: `idle_in_transaction_session_timeout='1s'` + sleep 3 → connection terminated
+- [x] **5.5** Update README: tunables table + per-project override pattern
+- [x] **5.6** Commit: `feat(s5): memory, timeout, and wal configuration`
 
 ---
 
