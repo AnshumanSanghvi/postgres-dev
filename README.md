@@ -4,8 +4,8 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S12 — all extensions installed (14 total). See
-[TASKS.md](TASKS.md) for slice progress.
+**Status:** S14 — CLI tooling (pgcli, pg_activity, pgbadger, pspg, sqitch) added.
+See [TASKS.md](TASKS.md) for slice progress.
 
 ---
 
@@ -322,6 +322,29 @@ naturally.
 | `scripts/psql-admin.sh`    | open psql as `admin`                          |
 | `scripts/psql-developer.sh`| open psql as `developer`                      |
 | `scripts/psql-app.sh`      | open psql as `app`                            |
+
+## CLI tools (S14)
+Baked into the image and accessible via `docker exec` or directly inside an
+interactive shell:
+
+| Tool          | Use                                                                                | Invocation example                              |
+|---------------|------------------------------------------------------------------------------------|-------------------------------------------------|
+| `pgcli`       | enhanced psql with autocomplete + syntax highlighting                              | `docker exec -it postgres-dev pgcli -U admin -d postgres` |
+| `pg_activity` | top-style live view of postgres queries                                            | `docker exec -it postgres-dev pg_activity -U admin`        |
+| `pgbadger`    | parse log files into HTML performance reports                                      | `docker exec postgres-dev pgbadger /var/log/postgresql/*.log -o /tmp/r.html` |
+| `pspg`        | tabular pager for psql; auto-used via `PAGER=pspg` baked into the image            | (used implicitly by psql/pgcli)                 |
+| `sqitch`      | SQL-native database migration management                                           | `docker exec -it postgres-dev sqitch --help`    |
+| `pgbench`     | built-in load testing tool (postgresql17 server package)                           | `docker exec -e PGPASSWORD=... postgres-dev pgbench -i -U admin -p 5499 -d postgres` |
+
+### pgbench prerequisites
+`pgbench -i` (initialize) needs CREATE TABLE rights, so run it as the `admin`
+user, not `app`. Once tables exist, runs against `app` (or any role with DML)
+work normally.
+
+```bash
+docker exec -e PGPASSWORD=admin postgres-dev pgbench -i -U admin -p 5499 -d postgres
+docker exec -e PGPASSWORD=admin postgres-dev pgbench -c 4 -j 2 -T 10 -U admin -p 5499 postgres
+```
 
 ## In-container utilities (added in S4)
 For ad-hoc debugging inside the container:

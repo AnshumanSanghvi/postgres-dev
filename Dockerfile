@@ -94,6 +94,51 @@ RUN dnf -y install \
     && dnf clean all \
     && rm -rf /var/cache/dnf /var/cache/yum
 
+# --- Step 6b: pspg (binary CLI, PGDG package) -------------------------------
+RUN dnf -y install pspg \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/yum
+
+# --- Step 6c: Python CLI tools (pgcli, pg_activity) via pip -----------------
+# OL9-slim ships python3.9. Pin tool versions for reproducibility.
+RUN dnf -y install python3 python3-pip \
+    && pip3 install --no-cache-dir --no-compile \
+         "pgcli==4.1.0" \
+         "pg_activity==3.6.1" \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/yum /root/.cache
+
+# --- Step 6d: pgbadger (perl, needs EPEL for perl-Text-CSV_XS) --------------
+# Two separate dnf transactions: the first enables Oracle EPEL, the second
+# refreshes cache and installs (single transaction misses newly-enabled repo).
+RUN dnf -y install oracle-epel-release-el9 \
+    && dnf makecache \
+    && dnf -y install pgbadger \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/yum
+
+# --- Step 6e: sqitch (App::Sqitch via cpanm) --------------------------------
+# Heavy step (~5 min on arm64 — cpanm builds many CPAN modules from source).
+# Build deps (gcc, make) are kept in the image: removing them with `dnf -y
+# remove` triggers OL9's default `clean_requirements_on_remove=True` which
+# transitively prunes other packages (e.g. pgbadger's perl chain). Image is
+# ~150 MB heavier with build tools; acceptable for a dev environment.
+# Smoke-test all five CLI tools at the end so silent failures fail the build.
+RUN dnf -y install \
+      perl perl-App-cpanminus perl-DBI perl-DBD-Pg \
+      gcc make \
+    && cpanm --quiet App::Sqitch \
+    && pgcli --version > /dev/null \
+    && pg_activity --version > /dev/null \
+    && pgbadger --version > /dev/null \
+    && pspg --version > /dev/null \
+    && sqitch --version > /dev/null \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/yum /root/.cpanm
+
+# Set pspg as default pager for psql output (sane scrolling for tabular data).
+ENV PAGER=pspg
+
 # --- Step 7: Filesystem + entrypoint ----------------------------------------
 # PGDATA is a *subdirectory* of the volume mount so .gitkeep / lost+found etc.
 # at the mount root don't trip initdb's "directory not empty" check.

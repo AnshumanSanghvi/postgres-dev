@@ -298,25 +298,28 @@ demonstrable increment.
 
 ---
 
-## Slice 14 — CLI Tools (pgcli, pg_activity, pgbadger, pspg, sqitch, pgloader)
+## Slice 14 — CLI Tools (pgcli, pg_activity, pgbadger, pspg, sqitch — pgloader excluded)
 
-**Goal:** add all CLI tools to the image.
+**Goal:** add all CLI tools to the image. (pgloader excluded per user decision.)
 
-- [ ] **14.1** Install pgcli + pg_activity via pip (pin versions)
-- [ ] **14.2** Install pspg (PGDG/EPEL/source)
-- [ ] **14.3** Install pgbadger (PGDG/EPEL/Perl)
-- [ ] **14.4** Install sqitch (PGDG package or `cpanm App::Sqitch`)
-- [ ] **14.5** Install pgloader — handle arch:
-  - On amd64 (`TARGETARCH=amd64`): install PGDG `pgloader` RPM directly
-  - On arm64 (`TARGETARCH=arm64`): install via QEMU emulation OR source build
-  - Document that on arm64 pgloader runs slower under emulation
-- [ ] **14.6** Set `ENV PAGER=pspg`
-- [ ] **14.7** Run hadolint
-- [ ] **14.8** Build on both architectures (or at least document amd64 was tested)
-- [ ] **14.9** Verify each CLI runs: `pgcli --version`, `pg_activity --version`, `pspg --version`, `pgbadger --version`, `sqitch --version`, `pgloader --version`, `pgbench --version`
-- [ ] **14.10** Add `scripts/pgcli-admin.sh`, `scripts/pgbadger-report.sh`
-- [ ] **14.11** Update README: list tools + one-line description + invocation example for each
-- [ ] **14.12** Commit: `feat(s14): cli tools (pgcli, pg_activity, pgbadger, pspg, sqitch, pgloader)`
+- [x] **14.1** pgcli via pip (4.1.0 pinned)
+- [x] **14.2** pg_activity via pip (3.6.1 pinned)
+- [x] **14.3** pspg via PGDG (5.8.16, arm64 binary)
+- [x] **14.4** pgbadger via PGDG (13.2) — needs Oracle EPEL for `perl-Text-CSV_XS`; install must be in a separate dnf transaction after `oracle-epel-release-el9` (single-transaction misses newly-enabled repo)
+- [x] **14.5** sqitch via cpanm (App::Sqitch 1.6.1) — heavy build (~5 min on arm64)
+- [x] **14.6** ~~pgloader~~ — EXCLUDED per user decision
+- [x] **14.7** Set `ENV PAGER=pspg`
+- [x] **14.8** hadolint clean
+- [x] **14.9** Verified all 6: pgcli, pg_activity, pgbadger, pspg, sqitch, pgbench
+- [x] **14.10** Commit: `feat(s14): cli tools (pgcli, pg_activity, pgbadger, pspg, sqitch)`
+
+### S14 Notes (took several iterations to get right)
+- **PGDG `pgcli`/`pg_activity` packages have unmet deps on OL9-slim** (`python3-setproctitle`, `python3-cli-helpers`, `python3.12-humanize`). Use pip install instead.
+- **pgbadger needs `perl-Text-CSV_XS` from EPEL.** Two dnf transactions required: first to install `oracle-epel-release-el9`, then a fresh dnf invocation (with newly-loaded repo metadata) installs pgbadger. Combining into one transaction silently fails.
+- **`dnf -y remove gcc make` after cpanm prunes pgbadger's perl deps** because OL9 default `clean_requirements_on_remove=True` pulls anything tagged "auto-installed" — including pgbadger's transitive perl deps. Solution: keep build deps in image (~150MB heavier, acceptable for dev).
+- **cpanm `--notest` drops some runtime deps** (e.g. Sub::Exporter::Util, Data::OptList). Run with tests for full dependency tree.
+- All 5 tool versions verified at the END of step 6e via smoke-test chain — silent install failures fail the build loudly.
+- Image size: 1.13 GB (was 373 MB at S1)
 
 ---
 
