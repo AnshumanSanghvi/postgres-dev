@@ -4,7 +4,7 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S6 — dual-format logging (stderr text + JSON file + rotation). See
+**Status:** S8 — schemas, locked-down public, cluster-wide search_path. See
 [TASKS.md](TASKS.md) for slice progress.
 
 ---
@@ -53,6 +53,20 @@ them after edits:
 scripts/reset.sh              # confirms before deleting
 scripts/up.sh                 # rebuilds and reinitializes
 ```
+
+## Schemas (S8)
+| Schema   | Purpose                                                      |
+|----------|--------------------------------------------------------------|
+| `app`    | application tables; default target for ad-hoc work           |
+| `public` | extensions only — `CREATE` revoked from PUBLIC; `USAGE` kept |
+
+`search_path` is `"$user", app, public` cluster-wide (in `postgresql.conf`),
+so every database — existing and future — inherits it. The `app` schema is
+created in `template1`, so any database created via `CREATE DATABASE foo`
+also gets it.
+
+To add per-project schemas, run `CREATE SCHEMA myschema` in your database;
+adjust search_path on a per-database or per-role basis if needed.
 
 ## Logs (S6)
 Postgres writes every event in two formats simultaneously:

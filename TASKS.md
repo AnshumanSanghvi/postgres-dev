@@ -178,19 +178,20 @@ demonstrable increment.
 
 ## Slice 8 — Schemas + search_path
 
-**Goal:** create `app` schema, lock down `public`, set DB-level search_path.
+**Goal:** create `app` schema, lock down `public`, set cluster-wide search_path.
 
-- [ ] **8.1** Write `initdb/02_schemas.sql`:
-  - `REVOKE CREATE ON SCHEMA public FROM PUBLIC;`
-  - `CREATE SCHEMA IF NOT EXISTS app;`
-  - `ALTER DATABASE template1 SET search_path = app, public;`
-  - `ALTER DATABASE postgres SET search_path = app, public;`
-- [ ] **8.2** Reset, verify:
-  - `\dn+` shows `app` and `public` with correct ownership
-  - New DB: `\c testdb; SHOW search_path;` returns `app, public`
-- [ ] **8.3** Test: non-superuser cannot CREATE in public
-- [ ] **8.4** Update README: schema strategy, why public is locked down, how to add custom schemas
-- [ ] **8.5** Commit: `feat(s8): app schema + locked-down public + search_path`
+- [x] **8.1** Write `initdb/02_schemas.sql` — REVOKE CREATE on public, CREATE SCHEMA app in template1 + postgres
+- [x] **8.2** Set `search_path = '"$user", app, public'` in postgresql.conf (cluster-wide, inherited by every DB)
+- [x] **8.3** Update entrypoint to run init scripts on first boot (temporary postgres start, run files in alphabetical order, stop)
+- [x] **8.4** Reset, verify: template1 has app schema + search_path
+- [x] **8.5** Verify new DB (`CREATE DATABASE testdb`) inherits both
+- [x] **8.6** Verify non-superuser cannot CREATE in public (got permission denied error as expected)
+- [x] **8.7** Update README: schema strategy
+- [x] **8.8** Commit: `feat(s8): app schema + locked-down public + cluster search_path`
+
+### S8 Notes
+- **`ALTER DATABASE template1 SET search_path` does NOT propagate** to new databases — per-database settings are not cloned. Set search_path cluster-wide in postgresql.conf instead.
+- Init script runner added to entrypoint: starts postgres temporarily on local socket only (`listen_addresses=''`), runs `*.sh`/`*.sql`/`*.sql.gz` files in alphabetical order with `ON_ERROR_STOP=1`, then stops with fast shutdown
 
 ---
 

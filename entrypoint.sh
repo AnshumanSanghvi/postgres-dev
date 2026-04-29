@@ -2,18 +2,20 @@
 # ============================================================================
 # Postgres Dev Environment — container entrypoint
 #
-#   Phase 1 (root):  Bind-mounted volumes from the host arrive owned by the
-#                    host UID/GID. On Linux we can chown them; on Docker
-#                    Desktop for Mac (virtiofs), chown across the boundary
-#                    is restricted. Instead we align the in-container
-#                    postgres user to the host's UID/GID — no chown needed.
-#                    Then re-exec as that user.
-#   Phase 2 (postgres): on first boot, run initdb with explicit locale and
-#                    scram-sha-256 auth (password from $POSTGRES_PASSWORD).
-#                    On every boot, exec the CMD in the foreground.
+#   Phase 1 (root):       align in-container postgres UID/GID to the
+#                         bind-mounted PGDATA owner (so chown is unnecessary
+#                         on Docker Desktop Mac), then re-exec as postgres.
+#   Phase 2 (postgres):   on first boot, initdb + run /docker-entrypoint-initdb.d
+#                         scripts in alphabetical order. On every boot, exec the
+#                         CMD (postgres) in the foreground.
 # ============================================================================
 set -Eeuo pipefail
 
+INIT_DIR=/docker-entrypoint-initdb.d
+
+# ---------------------------------------------------------------------------
+# Phase 1: root — align UID/GID
+# ---------------------------------------------------------------------------
 if [[ "$(id -u)" == "0" ]]; then
   mkdir -p "${PGDATA}" /var/log/postgresql
 
@@ -24,26 +26,25 @@ if [[ "$(id -u)" == "0" ]]; then
 
   if [[ "${data_uid}" != "${pg_uid}" || "${data_gid}" != "${pg_gid}" ]]; then
     echo "[entrypoint] aligning postgres user to host uid:${data_uid} gid:${data_gid}"
-    # -o = allow non-unique IDs (the host UID may already exist in /etc/passwd)
     groupmod -o -g "${data_gid}" postgres
     usermod  -o -u "${data_uid}" -g "${data_gid}" postgres
   fi
 
-  # chown is best-effort: succeeds on Linux, may be a no-op on macOS Docker
-  # Desktop bind mounts. UID alignment above makes the chown unnecessary for
-  # the bind mounts. Image-internal dirs (/run/postgresql) MUST be chowned
-  # so the now-aligned postgres user can write the unix socket lock file.
   chown -R postgres:postgres /var/lib/pgsql /var/log/postgresql /run/postgresql 2>/dev/null || true
   chmod 700 "${PGDATA}"
 
   exec runuser -u postgres -- "$0" "$@"
 fi
 
+# ---------------------------------------------------------------------------
+# Phase 2: postgres user
+# ---------------------------------------------------------------------------
+need_init_scripts=0
+
 if [[ ! -s "${PGDATA}/PG_VERSION" ]]; then
   : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set on first boot}"
 
   echo "[entrypoint] initializing new cluster at ${PGDATA}"
-
   initdb \
     --username=postgres \
     --pwfile=<(printf '%s' "${POSTGRES_PASSWORD}") \
@@ -52,10 +53,35 @@ if [[ ! -s "${PGDATA}/PG_VERSION" ]]; then
     --encoding=UTF8 \
     --locale=C.UTF-8 \
     --pgdata="${PGDATA}"
-
   echo "[entrypoint] initdb complete"
-else
-  echo "[entrypoint] existing cluster at ${PGDATA} — skipping initdb"
+  need_init_scripts=1
+fi
+
+# Run /docker-entrypoint-initdb.d scripts on first boot only.
+# Postgres is started temporarily on a local-only socket so the scripts can
+# connect; then stopped before we exec the real CMD.
+if [[ "${need_init_scripts}" == "1" ]] && compgen -G "${INIT_DIR}/*" >/dev/null; then
+  echo "[entrypoint] running init scripts from ${INIT_DIR}"
+
+  pg_ctl -D "${PGDATA}" \
+    -o "-c listen_addresses='' \
+        -c config_file=/etc/postgresql/postgresql.conf \
+        -c hba_file=/etc/postgresql/pg_hba.conf" \
+    -w -t 30 start
+
+  export PGPASSWORD="${POSTGRES_PASSWORD}"
+  for f in "${INIT_DIR}"/*; do
+    case "$f" in
+      *.sh)     echo "[entrypoint]   . $f" ; bash "$f" ;;
+      *.sql)    echo "[entrypoint]   * $f" ; psql -U postgres -d postgres -p 5499 -h /tmp -v ON_ERROR_STOP=1 -f "$f" ;;
+      *.sql.gz) echo "[entrypoint]   * $f" ; gunzip -c "$f" | psql -U postgres -d postgres -p 5499 -h /tmp -v ON_ERROR_STOP=1 ;;
+      *)        echo "[entrypoint]   ? $f (ignored)" ;;
+    esac
+  done
+  unset PGPASSWORD
+
+  pg_ctl -D "${PGDATA}" -m fast -w stop
+  echo "[entrypoint] init scripts complete"
 fi
 
 exec "$@"
