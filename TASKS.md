@@ -29,24 +29,31 @@ demonstrable increment.
 
 **Goal:** prove a minimal PG17 container starts on OL9-slim with default config.
 
-- [ ] **1.1** Verify PGDG RHEL9 repo URL and `pgdg-redhat-repo` RPM
-- [ ] **1.2** Write minimal `Dockerfile`:
+- [x] **1.1** Verify PGDG RHEL9 repo URL and `pgdg-redhat-repo` RPM (per-arch URLs work)
+- [x] **1.2** Write minimal `Dockerfile`:
   - `FROM oraclelinux:9-slim`
   - Install PGDG repo, postgresql17-server, postgresql17-contrib
   - Set PATH to include `/usr/pgsql-17/bin`
   - Create postgres user/group, PGDATA dir
   - Simple ENTRYPOINT that runs `initdb` if PGDATA empty, then `postgres`
-- [ ] **1.3** Set explicit locale `C.UTF-8` and encoding `UTF8` in initdb invocation
-- [ ] **1.4** Set `ENV TZ=UTC`
-- [ ] **1.5** Run `scripts/lint-dockerfile.sh` — passes
-- [ ] **1.6** Build: `docker build -t postgres-dev:s1 .`
-- [ ] **1.7** Run: `docker run --rm -d --name pg-s1 postgres-dev:s1`
-- [ ] **1.8** Verify: `docker exec pg-s1 psql -U postgres -c 'SELECT version();'` shows PG17
-- [ ] **1.9** Verify: `docker exec pg-s1 psql -U postgres -c "SHOW timezone;"` returns UTC
-- [ ] **1.10** Verify: `docker exec pg-s1 psql -U postgres -c "SHOW server_encoding;"` returns UTF8
-- [ ] **1.11** Verify multi-arch: image pulls native arch on host (`docker inspect` shows arm64 on Apple Silicon)
-- [ ] **1.12** Update README: "Slice 1 — bare PG17 working" with build/run/connect commands
-- [ ] **1.13** Commit: `feat(s1): bare postgres 17 on oraclelinux 9-slim`
+- [x] **1.3** Set explicit locale `C.UTF-8` and encoding `UTF8` in initdb invocation
+- [x] **1.4** Set `ENV TZ=UTC`
+- [x] **1.5** Run `scripts/lint-dockerfile.sh` — passes
+- [x] **1.6** Build: `docker build -t postgres-dev:s1 .` — PG 17.9 aarch64, 373MB
+- [x] **1.7** Run: `docker run --rm -d --name pg-s1 postgres-dev:s1`
+- [x] **1.8** Verify: `docker exec pg-s1 psql -U postgres -c 'SELECT version();'` shows PG17.9
+- [x] **1.9** Verify: SHOW timezone returns UTC
+- [x] **1.10** Verify: SHOW server_encoding returns UTF8
+- [x] **1.11** Verify multi-arch: image is arm64 on Apple Silicon host
+- [x] **1.12** Update README: "Slice 1 — bare PG17 working" with build/run/connect commands
+- [x] **1.13** Commit: `feat(s1): bare postgres 17 on oraclelinux 9-slim`
+
+### S1 Implementation Notes
+- `microdnf` URL-install of remote RPM was unreliable; switched to `curl -fsSL` then `dnf install /tmp/pgdg.rpm`
+- `curl` is already in OL9-slim base; no need to install `curl-minimal` (causes conflict)
+- `dnf` is not in OL9-slim by default; installed via `microdnf install dnf` first
+- PGDG repo URL is per-arch: `EL-9-x86_64/...` for amd64, `EL-9-aarch64/...` for arm64
+- Build time on arm64: ~6 minutes (most spent on dnf metadata download + dependency resolution)
 
 ---
 
