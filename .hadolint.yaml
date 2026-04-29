@@ -1,0 +1,18 @@
+# hadolint configuration
+# https://github.com/hadolint/hadolint
+
+# Treat these severity levels as failures
+failure-threshold: error
+
+# Trusted base image registries
+trustedRegistries:
+  - docker.io
+  - container-registry.oracle.com
+
+# Ignore rules that don't fit our use case
+ignored:
+  # DL3008: Pin versions in apt-get install — we use dnf, not apt
+  - DL3008
+  # DL3041: Specify version with dnf install — we pin extension packages
+  # but not every base RPM (overhead exceeds value for OL9 base packages)
+  - DL3041
