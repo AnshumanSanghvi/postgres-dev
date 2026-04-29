@@ -19,7 +19,7 @@ ARG PG_MAJOR=17
 ARG TARGETARCH
 
 ENV PG_MAJOR=${PG_MAJOR} \
-    PGDATA=/var/lib/pgsql/data \
+    PGDATA=/var/lib/pgsql/data/pgdata \
     PATH=/usr/pgsql-17/bin:${PATH} \
     TZ=UTC \
     LANG=C.UTF-8 \
@@ -55,19 +55,22 @@ RUN dnf -y install \
     && rm -rf /var/cache/dnf /var/cache/yum
 
 # --- Step 7: Filesystem + entrypoint ----------------------------------------
+# PGDATA is a *subdirectory* of the volume mount so .gitkeep / lost+found etc.
+# at the mount root don't trip initdb's "directory not empty" check.
 RUN mkdir -p "$PGDATA" /var/log/postgresql \
-    && chown -R postgres:postgres "$PGDATA" /var/log/postgresql \
+    && chown -R postgres:postgres /var/lib/pgsql /var/log/postgresql \
     && chmod 700 "$PGDATA"
 
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
-USER postgres
+# Entrypoint starts as root so it can fix bind-mount ownership,
+# then drops to the postgres user via runuser before exec'ing postgres.
 EXPOSE 5499
 VOLUME ["/var/lib/pgsql/data"]
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # Custom config files are expected at /etc/postgresql (volume-mounted).
 # Subsequent slices can override CMD without modifying the image.
-CMD ["postgres", "-D", "/var/lib/pgsql/data", \
+CMD ["postgres", "-D", "/var/lib/pgsql/data/pgdata", \
      "-c", "config_file=/etc/postgresql/postgresql.conf", \
      "-c", "hba_file=/etc/postgresql/pg_hba.conf"]

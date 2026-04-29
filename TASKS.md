@@ -84,31 +84,23 @@ demonstrable increment.
 
 **Goal:** replace raw `docker run` with compose; persist data/logs across restarts.
 
-- [ ] **3.1** Write `compose.yml`:
-  - Service `postgres` from local image
-  - Volumes: `./volumes/data:/var/lib/pgsql/data`, `./volumes/logs:/var/log/postgresql`, `./config:/etc/postgresql:ro`, `./initdb:/docker-entrypoint-initdb.d:ro`
-  - `env_file: .env`
-  - `mem_limit: 512m` and `mem_reservation: 256m`
-  - Port `5499:5499`
-  - Healthcheck: real-query-based (`psql -U admin -d postgres -p 5499 -c 'SELECT 1'`); fallback to `pg_isready` until admin user exists in later slices
-  - `restart: unless-stopped`
-  - **No** `platform:` pin (multi-arch auto-detect)
-- [ ] **3.2** Write `.env.example`:
-  ```
-  POSTGRES_PASSWORD=postgres            # bootstrap superuser, used in S1-S8
-  POSTGRES_ADMIN_PASSWORD=admin
-  POSTGRES_DEVELOPER_PASSWORD=developer
-  POSTGRES_APP_PASSWORD=app
-  POSTGRES_DB=appdb
-  ```
-- [ ] **3.3** Copy to local `.env` (gitignored)
-- [ ] **3.4** Write `scripts/up.sh`, `scripts/down.sh`, `scripts/reset.sh`
-- [ ] **3.5** Test: `scripts/up.sh` brings container up healthy
-- [ ] **3.6** Test: create a table, `scripts/down.sh`, `scripts/up.sh`, table still there
-- [ ] **3.7** Test: `scripts/reset.sh` wipes data cleanly and reinitializes
-- [ ] **3.8** Test: container memory enforced — `docker stats` shows ≤512MB limit
-- [ ] **3.9** Update README: full quick-start (clone → cp .env → up.sh → connect), document scripts/, document reset workflow
-- [ ] **3.10** Commit: `feat(s3): docker compose, volumes, env config, helper scripts`
+- [x] **3.1** Write `compose.yml` with volumes, env_file, mem_limit, healthcheck, no platform pin
+- [x] **3.2** Write `.env.example` (bootstrap + admin/dev/app passwords + POSTGRES_DB)
+- [x] **3.3** Copy to local `.env` (gitignored)
+- [x] **3.4** Write `scripts/up.sh`, `scripts/down.sh`, `scripts/reset.sh`
+- [x] **3.5** Test: `scripts/up.sh` brings container up healthy
+- [x] **3.6** Test: create a table, `down.sh`, `up.sh`, table still there (verified id=42 persists)
+- [x] **3.7** Test: `scripts/reset.sh` wipes data and reinitializes
+- [x] **3.8** Test: container memory enforced — `docker inspect` shows 512 MiB
+- [x] **3.9** Update README: prerequisites, quick start, volume layout, reset workflow, scripts/
+- [x] **3.10** Commit: `feat(s3): docker compose, volumes, env config, helper scripts`
+
+### S3 Implementation Notes
+- **PGDATA moved to subdirectory** `/var/lib/pgsql/data/pgdata` so `.gitkeep` at the bind-mount root doesn't trip initdb's "directory not empty" check
+- **Bind-mount UID problem on Mac**: Docker Desktop virtiofs restricts `chown` from inside container. Solution: entrypoint runs as root, detects host UID/GID from the bind mount, uses `usermod`/`groupmod -o` to align the in-container postgres user to those IDs, then drops to postgres via `runuser`. Works on Linux (chown succeeds anyway) and Mac (no chown needed)
+- `/run/postgresql` (image-internal, not bind-mounted) must be chowned to the now-aligned postgres UID so the unix socket lock file can be written
+- `reset.sh` deletes data via a one-shot helper container (host can't `rm -rf` files owned by container postgres UID)
+- Stale containers/networks from prior runs need cleanup before restart; could add `docker compose down --remove-orphans` to up.sh in future
 
 ---
 

@@ -4,59 +4,77 @@ A reusable, dockerized PostgreSQL 17 development environment built on OracleLinu
 Slim. Designed to mirror production RHEL9/OL9 environments, with a curated set of
 extensions, dev-tuned configuration, and CLI tooling baked in.
 
-**Status:** S2 — custom config, scram-sha-256 auth, port 5499. See [TASKS.md](TASKS.md)
+**Status:** S3 — docker compose, volumes, helper scripts. See [TASKS.md](TASKS.md)
 for slice progress.
 
 ---
 
-## What works today (after S2)
-- PostgreSQL 17 server + contrib on `oraclelinux:9-slim`, multi-arch (amd64 + arm64)
-- Locale `C.UTF-8`, encoding `UTF8`, timezone `UTC`
-- Custom `postgresql.conf` and `pg_hba.conf` mounted from `./config/` — change without rebuild
-- `scram-sha-256` authentication enforced for all connections
-- Listens on port `5499` (avoids conflict with local postgres on 5432)
-- SSL disabled (dev only)
+## Prerequisites
+- Docker Desktop (Mac/Windows) or Docker Engine 24+ (Linux)
+- Docker Compose v2 (`docker compose` subcommand)
+- ~1 GB disk for image + data
 
-## Build & run
+## Quick start
 ```bash
-docker build -t postgres-dev:s2 .
-
-# Run with mounted config, port forwarded, password set
-docker run --rm -d --name pg \
-  -v "$(pwd)/config:/etc/postgresql:ro" \
-  -e POSTGRES_PASSWORD=testpass123 \
-  -p 5499:5499 \
-  postgres-dev:s2
-
-# Connect from host
-PGPASSWORD=testpass123 psql -h localhost -p 5499 -U postgres
-
-# Or from inside the container
-docker exec -e PGPASSWORD=testpass123 -it pg psql -U postgres -p 5499
-
-# Stop
-docker stop pg
+git clone <this repo> postgres-dev && cd postgres-dev
+cp .env.example .env          # adjust passwords if you want
+scripts/up.sh                 # builds image, starts container, waits for healthy
+PGPASSWORD=postgres psql -h localhost -p 5499 -U postgres
 ```
 
-## Verification
+When done:
 ```bash
-# Auth method, port, SSL state
-PGPASSWORD=testpass123 psql -h localhost -p 5499 -U postgres -tAc \
-  "SELECT current_setting('port'), current_setting('password_encryption'), current_setting('ssl');"
-# → 5499|scram-sha-256|off
+scripts/down.sh               # stops container; data and logs preserved
+scripts/reset.sh              # full reset: stop + wipe volumes + reinit
+```
 
-# pg_hba rules in effect
-PGPASSWORD=testpass123 psql -h localhost -p 5499 -U postgres -c \
-  "SELECT type, database[1], user_name[1], address, auth_method FROM pg_hba_file_rules ORDER BY rule_number;"
+## What works today (after S3)
+- PostgreSQL 17 server + contrib on `oraclelinux:9-slim`, multi-arch (amd64 + arm64)
+- Locale `C.UTF-8`, encoding `UTF8`, timezone `UTC`
+- `scram-sha-256` authentication, port `5499`, SSL disabled
+- docker compose orchestration with bind-mounted `data/`, `logs/`, `config/`
+- 512 MiB memory limit enforced
+- Healthcheck via `pg_isready` (will switch to real-query check once admin user exists in S9)
+- Helper scripts: `up.sh`, `down.sh`, `reset.sh`
+- Data persists across `down/up`; container survives Docker restart
+
+## Volume layout
+| Host path           | Container path                | Purpose                          |
+|---------------------|-------------------------------|----------------------------------|
+| `./volumes/data/`   | `/var/lib/pgsql/data`         | PGDATA (cluster files)           |
+| `./volumes/logs/`   | `/var/log/postgresql`         | postgres log files (S6+)         |
+| `./config/`         | `/etc/postgresql` (read-only) | postgresql.conf, pg_hba.conf     |
+| `./initdb/`         | `/docker-entrypoint-initdb.d` (read-only) | first-boot init scripts (S5+) |
+
+## Resetting the environment
+Init scripts in `initdb/` only run on first boot (when PGDATA is empty). To re-run
+them after edits:
+```bash
+scripts/reset.sh              # confirms before deleting
+scripts/up.sh                 # rebuilds and reinitializes
 ```
 
 ## Editing config without rebuilding
-The container mounts `./config/` read-only at `/etc/postgresql/`. After editing
-`postgresql.conf` or `pg_hba.conf` on the host, simply restart the container:
+`./config/` is mounted read-only. After editing `postgresql.conf` or `pg_hba.conf`:
 ```bash
-docker restart pg
+docker compose restart postgres
 ```
 No image rebuild needed.
+
+## How the entrypoint handles bind-mount permissions
+Bind mounts on Docker Desktop for Mac (virtiofs) restrict `chown` across the
+host/container boundary. The entrypoint detects the host UID/GID from the
+bind-mounted PGDATA directory and aligns the in-container `postgres` user to
+match — no chown required on Mac, and a no-op on Linux where the chown succeeds
+naturally.
+
+## Helper scripts
+| Script                     | Purpose                                       |
+|----------------------------|-----------------------------------------------|
+| `scripts/up.sh`            | build + start + wait for healthy              |
+| `scripts/down.sh`          | stop the container (preserves data)           |
+| `scripts/reset.sh`         | wipe data and logs, force reinit on next up   |
+| `scripts/lint-dockerfile.sh` | run hadolint against Dockerfile             |
 
 ---
 

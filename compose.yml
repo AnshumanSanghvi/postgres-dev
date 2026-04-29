@@ -1,0 +1,32 @@
+# =============================================================================
+# Postgres Dev Environment — docker compose
+# Multi-arch: no `platform:` pin; Docker pulls the matching manifest per host.
+# =============================================================================
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: postgres-dev:local
+    container_name: postgres-dev
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "5499:5499"
+    volumes:
+      - ./volumes/data:/var/lib/pgsql/data
+      - ./volumes/logs:/var/log/postgresql
+      - ./config:/etc/postgresql:ro
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    # Memory budget — matches postgresql.conf shared_buffers/work_mem assumptions.
+    mem_limit: 512m
+    mem_reservation: 256m
+    # Healthcheck: pg_isready needs no auth, so it works in early slices.
+    # In S9 (once admin user exists) this switches to a real-query check.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -p 5499 -h 127.0.0.1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
