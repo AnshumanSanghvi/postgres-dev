@@ -523,6 +523,9 @@ mode (`docker exec -it ... psql ...`).
   after deploy", "should I add this index?", "stream changes downstream") that walk through
   the right combination of extensions and tools for each common situation. **Start here once
   the environment is up.**
-- [PLAN.md](PLAN.md) — architecture and design decisions
-- [TASKS.md](TASKS.md) — slice-by-slice implementation tracker
+- [docs/pg_optimization_decision_tree.html](docs/pg_optimization_decision_tree.html) —
+  interactive decision tree for general-purpose PostgreSQL performance tuning
+  (open in a browser).
+- [docs/PLAN.md](docs/PLAN.md) — architecture and design decisions
+- [docs/TASKS.md](docs/TASKS.md) — slice-by-slice implementation tracker
 - [config/psqlrc](config/psqlrc) — interactive psql defaults (commented)

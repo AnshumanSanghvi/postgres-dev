@@ -1193,6 +1193,7 @@ tail -F volumes/logs/postgresql-$(date -u +%Y-%m-%d).json \
 
 ## See also
 - [README.md](../README.md) — environment overview and feature list
-- [PLAN.md](../PLAN.md) — architectural decisions
-- [TASKS.md](../TASKS.md) — implementation slice tracker
-- [config/psqlrc](../config/psqlrc) — interactive psql defaults (commented)
+- [pg_optimization_decision_tree.html](pg_optimization_decision_tree.html) — interactive decision tree for general PG perf tuning
+- [PLAN.md](PLAN.md) — architectural decisions
+- [TASKS.md](TASKS.md) — implementation slice tracker
+- [../config/psqlrc](../config/psqlrc) — interactive psql defaults (commented)

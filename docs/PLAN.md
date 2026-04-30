@@ -174,9 +174,12 @@ postgres-dev/
 ├── .env.example
 ├── .gitignore
 ├── .hadolint.yaml               # hadolint config
-├── PLAN.md
-├── TASKS.md
-└── README.md
+├── README.md
+└── docs/
+    ├── playbook.md              # scenario-based recipes
+    ├── pg_optimization_decision_tree.html
+    ├── PLAN.md                  # this file
+    └── TASKS.md                 # implementation tracker
 ```
 
 ---
