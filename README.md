@@ -9,6 +9,10 @@ baked in.
 
 ---
 
+> **New here?** Once the environment is running, jump to
+> [`docs/playbook.md`](docs/playbook.md) for scenario-based recipes that show
+> what each extension and tool actually unlocks day-to-day.
+
 ## Table of contents
 - [Prerequisites](#prerequisites)
 - [Quick start](#quick-start)
@@ -515,6 +519,10 @@ mode (`docker exec -it ... psql ...`).
 ---
 
 ## Documents
+- **[docs/playbook.md](docs/playbook.md)** — scenario-based recipes ("an endpoint got slower
+  after deploy", "should I add this index?", "stream changes downstream") that walk through
+  the right combination of extensions and tools for each common situation. **Start here once
+  the environment is up.**
 - [PLAN.md](PLAN.md) — architecture and design decisions
 - [TASKS.md](TASKS.md) — slice-by-slice implementation tracker
 - [config/psqlrc](config/psqlrc) — interactive psql defaults (commented)

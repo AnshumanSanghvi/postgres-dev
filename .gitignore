@@ -18,3 +18,6 @@ volumes/logs/*
 *.swo
 .idea/
 .vscode/
+
+# Unrelated repos that may sit alongside in the workspace
+postgres-sample-dbs/
