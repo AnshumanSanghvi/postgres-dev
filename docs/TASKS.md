@@ -391,6 +391,69 @@ demonstrable increment.
 
 ---
 
+## Slice 17 — Barman 3.18 continuous backups + PITR
+
+**Goal:** add continuous WAL-based backups with point-in-time recovery to the
+existing setup, in the SAME container, without breaking anything.
+
+### Spec corrections (approved by user)
+- **B1**: streaming-only — no SSH, no `archive_command`. Barman pulls WAL via the streaming replication slot. Simpler, lower latency, fewer failure modes.
+- **B2**: drop the spec's "every minute receive-wal" cron line (broken — receive-wal is a long-running daemon, not a per-minute job). Use `barman cron` every minute instead — that's the command that manages receive-wal as a child daemon and restarts it on failure.
+- **B3**: keep `wal_level = logical` (NOT downgraded to `replica`). Logical is a strict superset; Barman works fine with it. Downgrading would break `wal2json` and the CDC playbook chapters.
+- **T1**: storage cap raised from 1 GB to 5 GB. 1 GB is too tight for 30-day PITR with normal dev activity.
+- **T2**: simple `cron -f &` background + foreground postgres (no supervisord).
+- **T3**: container `mem_limit` raised from 512 MB to 768 MB.
+
+### Tasks
+- [x] Dockerfile Step 6f: install `barman 3.18.0`, `barman-cli 3.18.0`, `cronie 1.5.7`, `sudo`. Create `/var/lib/barman` (700, barman:barman) and `/var/log/barman`. Sudoers entry for postgres → barman. COPY barman.conf, barman.d/, cron file, helper scripts.
+- [x] `compose.yml`: add `./backups:/var/lib/barman` bind mount; bump `mem_limit` to 768m, `mem_reservation` to 384m.
+- [x] `.env.example` + local `.env`: add `BARMAN_USER` and `BARMAN_PASSWORD`.
+- [x] `config/postgresql.conf`: `wal_keep_size = 512MB`, explicit `max_wal_senders = 10`, `max_replication_slots = 10`. **NOT** changing `wal_level` (stays `logical`).
+- [x] `config/pg_hba.conf`: add replication entries for `barman_repl` over 127.0.0.1 + ::1, scram-sha-256.
+- [x] `config/barman.conf`: global config (barman_user, barman_home, log_file, configuration_files_directory).
+- [x] `config/barman.d/postgres-dev.conf`: server config — backup_method=postgres, streaming_archiver=on, slot_name=barman_slot, retention_policy=RECOVERY WINDOW OF 30 DAYS, minimum_redundancy=2.
+- [x] `config/barman.crontab` (installed at `/etc/cron.d/barman`): every-minute `barman cron`, weekly + monthly `barman backup`, daily `barman check`, every-15-min cleanup script.
+- [x] `initdb/05_barman_replication.sh`: create the BARMAN_USER role and physical replication slot.
+- [x] `entrypoint.sh`: align barman UID/GID to bind-mount owner; generate `/var/lib/barman/.pgpass` from env; start crond in background.
+- [x] `scripts/barman-{backup,list,check,restore-latest,restore-pitr,cleanup}.sh` helpers.
+
+### Tests
+- [x] hadolint clean on updated Dockerfile
+- [x] Build succeeds on arm64 (image: 1.13 GB → 1.24 GB)
+- [x] Fresh reset + cold up to healthy: all 6 init scripts run (00, 02, 03, 04, **05** new, 06)
+- [x] Regression suite (S16-style):
+  - 14 extensions still installed in fresh DB
+  - admin/developer/app users connect with default passwords
+  - RLS enforced (admin sees 5, developer 1, app 1)
+  - `wal_level` is `logical` (NOT downgraded to replica)
+  - `wal_keep_size = 512MB` applied
+- [x] Barman infrastructure:
+  - `barman 3.18.0` installed; `barman --version` reports 3.18.0
+  - `crond -n -m off` running in background as PID alongside postgres
+  - `barman_repl` role created with REPLICATION + 3 role memberships + 4 EXECUTE function grants
+  - Physical replication slot `barman_slot` created (visible in `pg_replication_slots`)
+  - `/var/lib/barman/.pgpass` generated at entrypoint with 0600 perms
+- [x] `barman cron` succeeds; receive-wal streaming established
+- [x] `barman switch-wal --force --archive` works (requires `pg_checkpoint` role + `pg_switch_wal` EXECUTE — both granted)
+- [x] `barman backup postgres-dev` produces a 27.5 MiB basebackup in ~20 sec
+- [x] After 2 backups, `barman check` reports OK across all 22 health checks
+- [x] `barman recover` to sandbox dir produces valid PGDATA; restored cluster boots on alternate port
+- [x] **PITR verified end-to-end**: inserted pre-marker + post-marker into a table, took backup before, ran PITR with `--target-time` between the two inserts, recovered cluster shows pre-marker only (post-marker correctly absent)
+- [x] Helper scripts on PATH: barman-backup, barman-list, barman-check, barman-restore-latest, barman-restore-pitr, barman-cleanup
+- [x] /etc/cron.d/barman has expected entries (every-min cron, weekly/monthly backups, daily check, cleanup)
+- [x] Backup storage on host (./backups/) at 99 MB after 3 basebackups + WAL streams
+
+### S17 Implementation Notes
+- **Inline comments break Barman's INI parser** — `key = value # comment` is parsed with the comment as part of the value. All barman config files keep comments on their own lines.
+- **Barman `path_prefix = /usr/pgsql-17/bin`** is required because barman runs as the `barman` user with default PATH (`/sbin:/bin:/usr/sbin:/usr/bin`) which doesn't include the postgres bin dir.
+- **`barman_repl` needs more than REPLICATION**: requires `pg_read_all_settings`, `pg_read_all_stats`, `pg_checkpoint` role memberships AND `EXECUTE` grants on `pg_switch_wal()`, `pg_create_restore_point()`, `pg_backup_start()`, `pg_backup_stop()`. Without these, `barman check` fails with "missing required privileges".
+- **`barman switch-wal --force` requires `pg_checkpoint`** role membership (PG14+).
+- **PITR `--target-time` must be AFTER the chosen backup's end time** — pick a backup whose end time precedes your target with `barman list-backup`. Use `--target-action pause` to keep the recovered cluster queryable read-only after reaching the target.
+- **`./backups/` UID alignment** — same Docker Desktop Mac quirk as PGDATA. Entrypoint detects bind-mount UID/GID and aligns the in-container barman user to match (`usermod -o`). Both postgres and barman end up with the same UID (host UID) on Mac; Linux native runs see them as separate UIDs.
+- **No SSH** — `archive_command` is unset in postgres; Barman uses the streaming replication slot (`pg_receivewal`-style) for continuous WAL pull. Lower latency than archive_command, fewer failure modes.
+
+---
+
 ## Cross-Cutting Risks & Resolutions
 
 | # | Risk | Resolved In | Mitigation |

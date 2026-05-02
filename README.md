@@ -5,7 +5,7 @@ OracleLinux 9 Slim. Designed to mirror production RHEL9/OL9 environments,
 with a curated set of extensions, dev-tuned configuration, and CLI tooling
 baked in.
 
-**Status:** S15 — `.psqlrc` and final UX polish complete.
+**Status:** S17 — Barman 3.18 continuous backups + PITR added.
 
 ---
 
@@ -32,6 +32,7 @@ baked in.
 - [CLI tools](#cli-tools-s14)
 - [Helper scripts](#helper-scripts)
 - [In-container utilities](#in-container-utilities-added-in-s4)
+- [Backups (Barman)](#backups-barman-s17)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -105,6 +106,7 @@ docker exec -it -e PGPASSWORD=admin postgres-dev psql -U admin -p 5499 -d postgr
 | `./volumes/logs/`   | `/var/log/postgresql`                     | text + JSON log files            |
 | `./config/`         | `/etc/postgresql` (read-only)             | `postgresql.conf`, `pg_hba.conf` |
 | `./initdb/`         | `/docker-entrypoint-initdb.d` (read-only) | first-boot init scripts          |
+| `./backups/`        | `/var/lib/barman`                         | Barman basebackups + WAL (S17)   |
 
 PGDATA is a *subdirectory* of the bind mount (`pgdata/`) so `.gitkeep` and
 similar files at the mount root don't trip `initdb`'s "directory not empty"
@@ -482,6 +484,78 @@ Note: package is `vim-minimal`, which provides `vi` only (no `vim` binary).
 
 ---
 
+## Backups (Barman) (S17)
+
+Continuous WAL-based backups with point-in-time recovery, all inside the same
+container. Streaming-only — no SSH, no archive_command. Storage lives on the
+host at `./backups/`.
+
+### What runs automatically
+| When                  | Job                                              |
+|-----------------------|--------------------------------------------------|
+| Every minute          | `barman cron` — keeps `receive-wal` daemon alive, applies retention |
+| Every 15 minutes      | `barman-cleanup` — prunes oldest backups if `./backups` > 5 GB     |
+| Sunday 02:00 UTC      | Weekly full basebackup                           |
+| 1st of month 03:00 UTC| Monthly full basebackup                          |
+| Daily 06:00 UTC       | `barman check` — health verification             |
+
+Retention: `RECOVERY WINDOW OF 30 DAYS`, `minimum_redundancy = 2`. The
+guardrail script enforces a 5 GB hard cap on `./backups/` (configurable via
+`BACKUP_LIMIT_BYTES` in `/etc/barman-cleanup.conf`).
+
+### Manual operations
+```bash
+# Take a backup right now (out-of-band):
+docker exec postgres-dev barman-backup
+
+# List all backups + show server status:
+docker exec postgres-dev barman-list
+
+# Health check (returns non-zero on any failure):
+docker exec postgres-dev barman-check
+
+# Restore the latest backup to a sandbox directory inside the container:
+docker exec postgres-dev barman-restore-latest /tmp/recover
+
+# Point-in-time recovery to a specific UTC timestamp:
+docker exec postgres-dev barman-restore-pitr /tmp/pitr '2026-04-30 12:00:00 UTC'
+```
+
+### Verifying a recovered cluster
+After `barman-restore-latest` or `-pitr`, the target directory contains a full
+PGDATA. Boot it on a different port to inspect:
+```bash
+docker exec -u barman postgres-dev /usr/pgsql-17/bin/pg_ctl \
+  -D /tmp/pitr \
+  -o "-p 5599 -c listen_addresses=localhost -c unix_socket_directories=/tmp" \
+  -l /tmp/pitr/recovery.log start
+
+docker exec -u barman -e PGPASSWORD=admin postgres-dev /usr/pgsql-17/bin/psql \
+  -h /tmp -p 5599 -U admin -d postgres -c "SELECT count(*) FROM app.your_table;"
+
+docker exec -u barman postgres-dev /usr/pgsql-17/bin/pg_ctl -D /tmp/pitr stop -m fast
+```
+
+For PITR, `barman recover` accepts `--target-action shutdown` (default — cluster
+exits when target reached) or `--target-action pause` (cluster stays up
+read-only after reaching target — query, then stop).
+
+### How it works (architecture in 4 lines)
+1. `barman_repl` is a `LOGIN REPLICATION` role with explicit `EXECUTE` grants on `pg_switch_wal`, `pg_create_restore_point`, `pg_backup_start`, `pg_backup_stop`.
+2. Physical replication slot `barman_slot` (created at first boot) keeps WAL pinned for Barman's continuous streaming.
+3. `streaming_archiver = on` — Barman pulls WAL via `pg_receivewal` directly. No `archive_command` in `postgresql.conf`, no SSH.
+4. `backup_method = postgres` — basebackups via `pg_basebackup` over the streaming connection.
+
+### Storage
+Default budget: **5 GB** for `./backups/`. Initial state right after first boot
+is a few hundred KB; after first backup ~30 MB; grows with WAL traffic.
+The cleanup script triggers if you exceed 5 GB and prunes oldest basebackups
+(while honoring `minimum_redundancy = 2`).
+
+For the full backup/restore/PITR recipes including disaster scenarios
+("dropped the wrong table"), see
+[`docs/playbook.md` §13](docs/playbook.md#13-backup-restore-and-pitr-with-barman).
+
 ## Troubleshooting
 
 ### Init scripts didn't re-run
@@ -515,6 +589,20 @@ scripts/up.sh
 ### `.psqlrc` settings (timing, ∅, macros) don't appear
 `psql -c "..."` deliberately skips `.psqlrc`. Use heredoc or interactive
 mode (`docker exec -it ... psql ...`).
+
+### `barman check` reports "missing privileges"
+The `barman_repl` user needs explicit EXECUTE grants on `pg_switch_wal`,
+`pg_create_restore_point`, `pg_backup_start`, `pg_backup_stop` (added by
+`initdb/05_barman_replication.sh`). If you see this after a manual role
+edit: re-run that init script's GRANT block.
+
+### `barman check` says "interval provided: 8 days, latest backup age: No available backups"
+Expected on a freshly-reset cluster — there are no backups yet. Run
+`docker exec postgres-dev barman-backup` once (or wait for the Sunday cron).
+
+### Inline comments in `barman.d/*.conf` cause "Invalid value" warnings
+Barman's INI parser does NOT strip inline `#` comments — they get treated
+as part of the value. Always put comments on their own line.
 
 ---
 

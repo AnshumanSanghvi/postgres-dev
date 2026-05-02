@@ -1,0 +1,26 @@
+# =============================================================================
+# Barman cron schedule. Lives at /etc/cron.d/barman in the image.
+# Format: minute hour dom month dow USER command
+# All commands run as the `barman` user (no sudo).
+# =============================================================================
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Continuous WAL streaming + retention enforcement.
+# `barman cron` is the right command for the every-minute slot — it manages
+# the receive-wal daemon as a child process and restarts it if it dies.
+* * * * * barman /usr/bin/barman cron >> /var/log/barman/cron.log 2>&1
+
+# Weekly full backup — Sundays at 02:00 UTC. The retention policy keeps 4.
+0 2 * * 0 barman /usr/bin/barman backup postgres-dev >> /var/log/barman/weekly-backup.log 2>&1
+
+# Monthly full backup — 1st of month at 03:00 UTC. The retention policy keeps 3.
+0 3 1 * * barman /usr/bin/barman backup postgres-dev >> /var/log/barman/monthly-backup.log 2>&1
+
+# Daily verification — `barman check` at 06:00 UTC. Output is in the log;
+# anything other than "OK" lines is a flag.
+0 6 * * * barman /usr/bin/barman check postgres-dev >> /var/log/barman/daily-check.log 2>&1
+
+# Storage guardrail — every 15 minutes, prune oldest backups if /var/lib/barman
+# exceeds the 5 GB cap. Runs as root so it can list and delete via barman.
+*/15 * * * * root /usr/local/bin/barman-cleanup >> /var/log/barman/cleanup.log 2>&1

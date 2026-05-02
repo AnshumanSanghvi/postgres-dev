@@ -19,9 +19,13 @@ services:
       - ./volumes/logs:/var/log/postgresql
       - ./config:/etc/postgresql:ro
       - ./initdb:/docker-entrypoint-initdb.d:ro
-    # Memory budget — matches postgresql.conf shared_buffers/work_mem assumptions.
-    mem_limit: 512m
-    mem_reservation: 256m
+      # Barman storage — basebackups and WAL archives. Persists outside the
+      # container so backups survive image rebuilds and `compose down -v`.
+      - ./backups:/var/lib/barman
+    # Memory budget — postgres + barman receive-wal + cron + python tooling.
+    # Bumped from 512m (S5) to fit the additional barman footprint (S17).
+    mem_limit: 768m
+    mem_reservation: 384m
     # Healthcheck: real-query as admin (proves init scripts ran AND auth works).
     healthcheck:
       test: ["CMD-SHELL", "PGPASSWORD=$$POSTGRES_ADMIN_PASSWORD psql -h 127.0.0.1 -p 5499 -U admin -d postgres -tAc 'SELECT 1' || exit 1"]

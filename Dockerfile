@@ -139,6 +139,40 @@ RUN dnf -y install \
 # Set pspg as default pager for psql output (sane scrolling for tabular data).
 ENV PAGER=pspg
 
+# --- Step 6f: Barman 3.18 + cron --------------------------------------------
+# barman is the backup tool (includes barman-cli for client-side helpers).
+# cronie provides crond for scheduling barman backups + maintenance.
+# We DO NOT install openssh-server: this setup uses streaming_archiver
+# (Barman pulls WAL via pg_receivewal-equivalent) — no SSH needed.
+RUN dnf -y install \
+      "barman-3.18.0-42PGDG.rhel9.7" \
+      "barman-cli-3.18.0-42PGDG.rhel9.7" \
+      "cronie-1.5.7-15.el9" \
+      "sudo" \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/yum
+
+# Allow the postgres user to invoke barman as the barman user without a TTY.
+# Used by helper scripts that wrap "barman backup", "barman list-backup", etc.
+RUN echo 'postgres ALL=(barman) NOPASSWD: /usr/bin/barman' > /etc/sudoers.d/postgres-barman \
+    && chmod 0440 /etc/sudoers.d/postgres-barman
+
+# Barman config files. Server config lives in /etc/barman.d/ — mounted via
+# a separate COPY so config edits don't bust the package cache.
+COPY --chmod=644 config/barman.conf /etc/barman.conf
+COPY --chmod=644 config/barman.d/postgres-dev.conf /etc/barman.d/postgres-dev.conf
+
+# Cron file — mode 0644 required by cron, owner root.
+COPY --chmod=644 config/barman.crontab /etc/cron.d/barman
+
+# Barman state and log directory. /var/lib/barman is the bind-mount target
+# (./backups on host) so basebackups + WAL archives persist across container
+# rebuilds. The log dir lives in the image (rotated by barman itself).
+RUN mkdir -p /var/lib/barman /var/log/barman \
+    && chown barman:barman /var/lib/barman /var/log/barman \
+    && chmod 700 /var/lib/barman \
+    && chmod 755 /var/log/barman
+
 # --- Step 7: Filesystem + entrypoint ----------------------------------------
 # PGDATA is a *subdirectory* of the volume mount so .gitkeep / lost+found etc.
 # at the mount root don't trip initdb's "directory not empty" check.
@@ -147,6 +181,16 @@ RUN mkdir -p "$PGDATA" /var/log/postgresql \
     && chmod 700 "$PGDATA"
 
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# Barman helper scripts wrap common workflows (backup, list, restore, PITR,
+# check, cleanup). All are runnable as either root or the postgres user; they
+# use sudo to step up to barman where needed.
+COPY --chmod=755 scripts/barman-backup.sh        /usr/local/bin/barman-backup
+COPY --chmod=755 scripts/barman-list.sh          /usr/local/bin/barman-list
+COPY --chmod=755 scripts/barman-check.sh         /usr/local/bin/barman-check
+COPY --chmod=755 scripts/barman-restore-latest.sh /usr/local/bin/barman-restore-latest
+COPY --chmod=755 scripts/barman-restore-pitr.sh  /usr/local/bin/barman-restore-pitr
+COPY --chmod=755 scripts/barman-cleanup.sh       /usr/local/bin/barman-cleanup
 
 # .psqlrc — heavily commented; see config/psqlrc for the source.
 # Placed at /etc/psqlrc and pointed to via PSQLRC env so every psql session

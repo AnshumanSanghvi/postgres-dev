@@ -68,6 +68,12 @@ adapt user (`admin`/`developer`/`app`) and database (`postgres`/your db) as need
     12.1 [Make psql sing for me](#121--make-psql-sing-for-me)
     12.2 [Stop typing the same diagnostics queries](#122--stop-typing-the-same-diagnostics-queries)
     12.3 [Read the JSON log live](#123--read-the-json-log-live)
+13. [Backup, restore, and PITR with Barman](#13-backup-restore-and-pitr-with-barman)
+    13.1 [Take an out-of-band backup](#131--take-an-out-of-band-backup)
+    13.2 [Restore the latest backup to a sandbox cluster](#132--restore-the-latest-backup-to-a-sandbox-cluster)
+    13.3 ["I dropped the wrong table" — point-in-time recovery](#133--i-dropped-the-wrong-table--point-in-time-recovery)
+    13.4 [Verify a backup is good before you need it](#134--verify-a-backup-is-good-before-you-need-it)
+    13.5 [Recover when storage hits the cap](#135--recover-when-storage-hits-the-cap)
 
 ---
 
@@ -1188,6 +1194,192 @@ tail -F volumes/logs/postgresql-$(date -u +%Y-%m-%d).json \
 tail -F volumes/logs/postgresql-$(date -u +%Y-%m-%d).json \
   | jq -r 'select(.message | startswith("duration:")) | .message'
 ```
+
+---
+
+## 13. Backup, restore, and PITR with Barman
+
+### 13.1 — "Take an out-of-band backup"
+
+**Symptom:** about to ship a risky migration; want a verified snapshot beyond
+the next scheduled weekly backup.
+
+**Tooling:** `barman-backup` (helper that wraps `barman backup postgres-dev`).
+
+```bash
+docker exec postgres-dev barman-backup
+# → Backup completed (start time: ..., elapsed time: ~20 seconds)
+# → Backup size: ~28 MiB for an empty cluster
+
+docker exec postgres-dev barman-list
+# → postgres-dev 20260430T120000 - F - ... - Size: 28 MiB - WAL Size: 0 B
+```
+
+The backup ID is the timestamp (`20260430T120000`). Note it for §13.3 below
+in case you need to restore exactly to "right before that migration".
+
+**Why this works:** `pg_basebackup` over the streaming replication slot
+copies all data files atomically without locking. WAL is preserved
+continuously by `barman cron`, so PITR works against this backup point.
+
+---
+
+### 13.2 — "Restore the latest backup to a sandbox cluster"
+
+**Symptom:** want to verify the backup actually restores cleanly, or you need
+a copy of yesterday's state to compare against today's.
+
+**Tooling:** `barman-restore-latest` + `pg_ctl` on a different port.
+
+```bash
+# Restore into a fresh directory inside the container:
+docker exec postgres-dev barman-restore-latest /tmp/recover
+
+# Boot it on port 5599 with a private socket dir:
+docker exec -u barman postgres-dev /usr/pgsql-17/bin/pg_ctl \
+  -D /tmp/recover \
+  -o "-p 5599 -c listen_addresses=localhost -c unix_socket_directories=/tmp" \
+  -l /tmp/recover/recovery.log start
+
+# Query — the recovered cluster is read-write and independent of the live one:
+docker exec -u barman -e PGPASSWORD=admin postgres-dev /usr/pgsql-17/bin/psql \
+  -h /tmp -p 5599 -U admin -d postgres -c "SELECT count(*) FROM app.orders;"
+
+# When done, stop it:
+docker exec -u barman postgres-dev /usr/pgsql-17/bin/pg_ctl -D /tmp/recover stop -m fast
+```
+
+**Why this works:** `barman recover` produces a complete PGDATA. Booting it on
+a non-default port avoids any clash with the live cluster on 5499.
+
+---
+
+### 13.3 — "I dropped the wrong table" — point-in-time recovery
+
+**Symptom:** at 14:17:22 someone ran `DROP TABLE orders` in the live cluster.
+You need to recover the data as it existed at 14:17:21.
+
+**Tooling:** `barman-restore-pitr`.
+
+#### Step 1 — find a basebackup that ENDED before the disaster
+```bash
+docker exec postgres-dev barman-list
+# 20260430T120000 ended at  Sat Apr 30 12:00:18 2026  ← this one is fine
+# 20260430T140000 ended at  Sat Apr 30 14:18:32 2026  ← TOO LATE — finished AFTER drop
+```
+Pick a backup whose end time is before your PITR target.
+
+#### Step 2 — restore to a sandbox dir, replay WAL up to disaster - 1 second
+```bash
+docker exec postgres-dev rm -rf /tmp/oops && \
+  docker exec postgres-dev mkdir -p /tmp/oops && \
+  docker exec postgres-dev chown barman:barman /tmp/oops
+
+# Use --target-action pause so you can query the recovered state:
+docker exec postgres-dev sudo -u barman /usr/bin/barman recover postgres-dev \
+  20260430T120000 /tmp/oops \
+  --target-time '2026-04-30 14:17:21+00' \
+  --target-action pause
+```
+
+#### Step 3 — boot the recovered cluster, dump the lost table
+```bash
+docker exec -u barman postgres-dev /usr/pgsql-17/bin/pg_ctl \
+  -D /tmp/oops \
+  -o "-p 5599 -c listen_addresses=localhost -c unix_socket_directories=/tmp" \
+  -l /tmp/oops/recovery.log start
+
+# Verify the table exists at the recovered point:
+docker exec -u barman -e PGPASSWORD=admin postgres-dev /usr/pgsql-17/bin/psql \
+  -h /tmp -p 5599 -U admin -d postgres -c "SELECT count(*) FROM app.orders;"
+
+# Dump just that table (recovered cluster is read-only with --target-action pause):
+docker exec -u barman -e PGPASSWORD=admin postgres-dev /usr/pgsql-17/bin/pg_dump \
+  -h /tmp -p 5599 -U admin -d postgres -t app.orders -f /tmp/orders.sql
+
+# Stop the sandbox:
+docker exec -u barman postgres-dev /usr/pgsql-17/bin/pg_ctl -D /tmp/oops stop -m immediate
+```
+
+#### Step 4 — restore the dump into the live cluster
+```bash
+docker cp postgres-dev:/tmp/orders.sql ./orders.sql
+PGPASSWORD=admin psql -h localhost -p 5499 -U admin -d postgres -f orders.sql
+```
+
+**Why this works:** `--target-action pause` halts WAL replay at the target
+time and leaves the cluster up read-only. You can `pg_dump` any subset and
+re-import without overwriting parts of the live cluster you didn't want
+rolled back.
+
+**Caveat:** if the target time is BEFORE the basebackup's end time, Barman
+will refuse — pick an earlier backup. The `barman list-backup` "Status" or
+"End Time" column tells you which.
+
+---
+
+### 13.4 — "Verify a backup is good before you need it"
+
+**Symptom:** you don't want the first time you restore to be during an
+incident.
+
+**Tooling:** `barman-check` (daily cron) + a periodic restore drill.
+
+```bash
+# Quick health check — verifies WAL streaming, replication slot,
+# pg_basebackup compatibility, retention policy, etc.
+docker exec postgres-dev barman-check
+# Expected: every line ends with "OK"
+
+# Full drill: restore latest into a sandbox and boot it (see §13.2).
+# If this passes, your backups are real.
+```
+
+The cron job at 06:00 UTC daily runs the same `barman check` and writes to
+`/var/log/barman/daily-check.log` inside the container. Anything other than
+"OK" is a flag.
+
+---
+
+### 13.5 — "Recover when storage hits the cap"
+
+**Symptom:** `./backups/` is at 5 GB and growing; the cleanup script just
+deleted your oldest weekly backup.
+
+**Tooling:** `barman-cleanup` script + `BACKUP_LIMIT_BYTES` override.
+
+#### Step 1 — see what's using space
+```bash
+du -sh ./backups
+docker exec postgres-dev sudo -u barman du -sh /var/lib/barman/postgres-dev/*
+# typical breakdown:
+#   base/   ← basebackups (recent + older retention)
+#   wals/   ← WAL stream archive
+#   streaming/ ← in-flight WAL from receive-wal
+```
+
+#### Step 2 — raise the cap if you really need more retention
+```bash
+# Inside the container (/etc/barman-cleanup.conf is read by the cleanup script):
+docker exec postgres-dev sh -c \
+  'echo "BACKUP_LIMIT_BYTES=$((10 * 1024 * 1024 * 1024))" > /etc/barman-cleanup.conf'
+# (10 GB now)
+```
+Persists for the life of the container; bake into the image if you want it
+permanent (edit `scripts/barman-cleanup.sh` default and rebuild).
+
+#### Step 3 — or shrink retention to fit
+Edit `config/barman.d/postgres-dev.conf`:
+```
+retention_policy = RECOVERY WINDOW OF 7 DAYS
+```
+Then `docker compose restart postgres` (no rebuild needed since `./config/`
+is bind-mounted). Next `barman cron` enforces the new policy.
+
+**Why this works:** the cleanup script and the retention policy are
+independent — cleanup is a hard cap on disk usage; retention_policy is
+Barman's normal "keep enough basebackups to support the recovery window".
+Tighten either to fit your storage budget.
 
 ---
 

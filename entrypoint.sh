@@ -17,7 +17,7 @@ INIT_DIR=/docker-entrypoint-initdb.d
 # Phase 1: root — align UID/GID
 # ---------------------------------------------------------------------------
 if [[ "$(id -u)" == "0" ]]; then
-  mkdir -p "${PGDATA}" /var/log/postgresql
+  mkdir -p "${PGDATA}" /var/log/postgresql /var/log/barman /var/lib/barman
 
   data_uid="$(stat -c '%u' /var/lib/pgsql/data)"
   data_gid="$(stat -c '%g' /var/lib/pgsql/data)"
@@ -30,8 +30,43 @@ if [[ "$(id -u)" == "0" ]]; then
     usermod  -o -u "${data_uid}" -g "${data_gid}" postgres
   fi
 
+  # S17: align barman to the bind-mounted /var/lib/barman owner UID/GID
+  # (Docker Desktop Mac restricts chown across virtiofs).
+  barman_data_uid="$(stat -c '%u' /var/lib/barman)"
+  barman_data_gid="$(stat -c '%g' /var/lib/barman)"
+  if [[ "${barman_data_uid}" != "$(id -u barman)" || "${barman_data_gid}" != "$(id -g barman)" ]]; then
+    echo "[entrypoint] aligning barman user to host uid:${barman_data_uid} gid:${barman_data_gid}"
+    groupmod -o -g "${barman_data_gid}" barman
+    usermod  -o -u "${barman_data_uid}" -g "${barman_data_gid}" barman
+  fi
+
   chown -R postgres:postgres /var/lib/pgsql /var/log/postgresql /run/postgresql 2>/dev/null || true
+  chown -R barman:barman   /var/lib/barman /var/log/barman              2>/dev/null || true
   chmod 700 "${PGDATA}"
+  chmod 700 /var/lib/barman
+
+  # S17: generate ~barman/.pgpass so barman can authenticate as $BARMAN_USER
+  # without the password appearing in process args or env. .pgpass requires
+  # 0600 perms — postgres rejects it otherwise.
+  if [[ -n "${BARMAN_USER:-}" && -n "${BARMAN_PASSWORD:-}" ]]; then
+    {
+      echo "127.0.0.1:5499:*:${BARMAN_USER}:${BARMAN_PASSWORD}"
+      echo "localhost:5499:*:${BARMAN_USER}:${BARMAN_PASSWORD}"
+    } > /var/lib/barman/.pgpass
+    chown barman:barman /var/lib/barman/.pgpass
+    chmod 600           /var/lib/barman/.pgpass
+  fi
+
+  # S17: start cron in the background as root. Cron entries in /etc/cron.d/barman
+  # specify barman/root user as needed. `crond -n` runs in foreground; we send
+  # it to background here so the entrypoint can continue to `exec postgres`.
+  # If cron dies, container stays alive (postgres is the supervisor). The first
+  # few cron iterations will fail until postgres is accepting connections —
+  # that's fine, errors are logged to /var/log/barman/cron.log.
+  if [[ -x /usr/sbin/crond ]]; then
+    echo "[entrypoint] starting crond in background"
+    /usr/sbin/crond -n -m off &
+  fi
 
   exec runuser -u postgres -- "$0" "$@"
 fi

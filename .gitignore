@@ -9,6 +9,10 @@ volumes/logs/*
 !volumes/data/.gitkeep
 !volumes/logs/.gitkeep
 
+# Barman backup storage (host-mounted; backups regenerate on demand)
+backups/*
+!backups/.gitkeep
+
 # Claude Code session state (per-user, not project)
 .claude/
 
